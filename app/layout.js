@@ -2,7 +2,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata = {
-  title: "cheer.here · Jacksonville Christmas lights map",
+  title: "HoHoHomes · Jacksonville Christmas lights map",
   description:
     "See which Jacksonville streets are glowing tonight, and add a house with one tap. No sign-up.",
 };

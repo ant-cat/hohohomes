@@ -409,7 +409,7 @@ export default function LightsMap() {
         <div className="brand">
           <div>
             <h1>
-              cheer<span>.</span>here ✨
+              HoHo<span>Homes</span> ✨
             </h1>
             <small>Christmas lights around Jacksonville</small>
           </div>

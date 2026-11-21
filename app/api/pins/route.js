@@ -57,7 +57,7 @@ export async function POST(req) {
   const lng = Number(body && body.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return json({ error: "Missing location." }, 400);
   if (lat < BOUNDS.minLat || lat > BOUNDS.maxLat || lng < BOUNDS.minLng || lng > BOUNDS.maxLng) {
-    return json({ error: "For now cheer.here only covers the Jacksonville area." }, 400);
+    return json({ error: "For now HoHoHomes only covers the Jacksonville area." }, 400);
   }
   let rating = Number(body.rating) || 0;
   rating = Math.max(0, Math.min(3, Math.round(rating)));
