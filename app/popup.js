@@ -1,7 +1,8 @@
-import { VIBES, FRESH_MS, lastLit } from "../lib/vibes";
+import { VIBES, FRESH_MS, lastLit, isShowstopper } from "../lib/vibes";
 
-const LABELS = ["", "Nice", "Great", "Wow"];
 const LIT_KEY = (id) => `hh:lit:${id}`;
+const WOW_KEY = (id) => `hh:wow:${id}`;
+const WOW_WINDOW = 12 * 60 * 60 * 1000;
 const MINE_WINDOW = 6 * 60 * 60 * 1000;
 
 function short(ms) {
@@ -37,6 +38,22 @@ export function rememberConfirmed(id) {
   } catch {}
 }
 
+export function votedByMe(id) {
+  try {
+    return Date.now() - Number(localStorage.getItem(WOW_KEY(id)) || 0) < WOW_WINDOW;
+  } catch {
+    return false;
+  }
+}
+
+export function rememberVoted(id) {
+  try {
+    localStorage.setItem(WOW_KEY(id), String(Date.now()));
+  } catch {}
+}
+
+const wowText = (n) => `🤩 ${n} ${n === 1 ? "person says" : "people say"} it's worth the drive`;
+
 function div(cls, text) {
   const el = document.createElement("div");
   el.className = cls;
@@ -45,17 +62,18 @@ function div(cls, text) {
 }
 
 // The card shown when someone taps a house.
-export function popupNode(pin, { onLit, onRemove }) {
+export function popupNode(pin, { onLit, onWow, onRemove }) {
   const el = div("pop");
 
-  const avg = pin.rn ? pin.rs / pin.rn : 0;
-  const full = Math.round(avg);
-  el.appendChild(
-    div("pop-title", avg ? "★".repeat(full) + "☆".repeat(3 - full) + "  " + LABELS[full] : "✨ Lights!")
-  );
+  // Only ever celebrate upward: Showstoppers get a badge, every other house is simply "Lights!".
+  const show = isShowstopper(pin);
+  el.appendChild(div(`pop-title${show ? " show" : ""}`, show ? "🤩 Showstopper" : "✨ Lights!"));
 
   const c = pin.c || 1;
   el.appendChild(div("pop-meta", `Seen by ${c} ${c === 1 ? "person" : "people"}`));
+  const wowLine = div("pop-wow", pin.w ? wowText(pin.w) : "");
+  if (!pin.w) wowLine.hidden = true;
+  el.appendChild(wowLine);
 
   const tags = VIBES.filter((v) => pin.v && pin.v[v.id] > 0);
   if (tags.length) {
@@ -94,6 +112,28 @@ export function popupNode(pin, { onLit, onRemove }) {
   lit.appendChild(btn);
   lit.appendChild(ago);
   el.appendChild(lit);
+
+  const wow = document.createElement("button");
+  wow.type = "button";
+  wow.className = "wow-btn";
+  const voted = votedByMe(pin.id);
+  wow.textContent = voted ? "🤩 You said it's worth the drive" : "🤩 Worth the Drive";
+  wow.disabled = voted;
+  wow.addEventListener("click", () => {
+    wow.disabled = true;
+    wow.textContent = "🤩 You said it's worth the drive";
+    wow.classList.add("pulse");
+    wowLine.hidden = false;
+    wowLine.textContent = wowText((pin.w || 0) + 1);
+    onWow(pin.id).catch(() => {
+      wow.disabled = false;
+      wow.textContent = "🤩 Worth the Drive";
+      wow.classList.remove("pulse");
+      wowLine.hidden = !pin.w;
+      wowLine.textContent = pin.w ? wowText(pin.w) : "";
+    });
+  });
+  el.appendChild(wow);
 
   const a = document.createElement("a");
   a.className = "pop-dir";

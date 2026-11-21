@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { VIBES } from "../lib/vibes";
+import { VIBES, WOW, isShowstopper } from "../lib/vibes";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
-import { popupNode, isFresh, rememberConfirmed } from "./popup";
+import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
 
 const JAX = [-81.6557, 30.3322];
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
@@ -44,7 +44,7 @@ function toGeoJSON(pins) {
     features: pins.map((p) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [p.lng, p.lat] },
-      properties: { id: p.id, fresh: isFresh(p, now) ? 1 : 0, h: hash(p.id) % SPARK_COLORS.length },
+      properties: { id: p.id, fresh: isFresh(p, now) ? 1 : 0, s: isShowstopper(p) ? 1 : 0, h: hash(p.id) % SPARK_COLORS.length },
     })),
   };
 }
@@ -104,6 +104,9 @@ export default function LightsMap() {
   const dropAtRef = useRef(() => {});
 
   const [count, setCount] = useState(null);
+  const [shows, setShows] = useState(0); // how many Showstoppers
+  const [showOnly, setShowOnly] = useState(false); // "Showstoppers only" filter
+  const showOnlyRef = useRef(false);
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
@@ -142,6 +145,7 @@ export default function LightsMap() {
       let list = pinsRef.current.filter(
         (p) =>
           p.id !== hiddenIdRef.current &&
+          (!showOnlyRef.current || isShowstopper(p)) &&
           p.lng > b.getWest() - padLng &&
           p.lng < b.getEast() + padLng &&
           p.lat > b.getSouth() - padLat &&
@@ -181,6 +185,7 @@ export default function LightsMap() {
         o.lat = p.lat;
       }
       o.el.classList.toggle("stale", !isFresh(p, now));
+      o.el.classList.toggle("show", isShowstopper(p));
     }
   }, []);
 
@@ -188,8 +193,9 @@ export default function LightsMap() {
     (pins) => {
       pinsRef.current = pins;
       setCount(pins.length);
+      setShows(pins.filter(isShowstopper).length);
       const src = mapRef.current && mapRef.current.getSource("pins");
-      if (src) src.setData(toGeoJSON(pins));
+      if (src) src.setData(toGeoJSON(showOnlyRef.current ? pins.filter(isShowstopper) : pins));
       syncOrbs();
     },
     [syncOrbs]
@@ -206,6 +212,26 @@ export default function LightsMap() {
         const data = await api("POST", `/api/pins/${id}/lit`);
         lastWriteRef.current = Date.now();
         rememberConfirmed(id);
+        if (data.pins) setPins(data.pins);
+      } catch (err) {
+        setPins(before);
+        say(err.message);
+        throw err;
+      }
+    },
+    [setPins, say]
+  );
+
+  const voteWow = useCallback(
+    async (id) => {
+      haptic(25);
+      if (!mutedRef.current) chime(false);
+      const before = pinsRef.current;
+      setPins(before.map((p) => (p.id === id ? { ...p, w: (p.w || 0) + 1 } : p)));
+      try {
+        const data = await api("POST", `/api/pins/${id}/wow`);
+        lastWriteRef.current = Date.now();
+        rememberVoted(id);
         if (data.pins) setPins(data.pins);
       } catch (err) {
         setPins(before);
@@ -246,14 +272,17 @@ export default function LightsMap() {
       if (popupRef.current) popupRef.current.remove();
       popupRef.current = new lib.Popup({ offset: 16, maxWidth: "280px" })
         .setLngLat([pin.lng, pin.lat])
-        .setDOMContent(popupNode(pin, { onLit: confirmLit, onRemove: adminKeyRef.current ? removeHouse : null }))
+        .setDOMContent(popupNode(pin, { onLit: confirmLit, onWow: voteWow, onRemove: adminKeyRef.current ? removeHouse : null }))
         .addTo(map);
-      // Keep the card clear of the header.
+      // Keep the whole card clear of the header: measure both and pan just enough.
       const y = map.project([pin.lng, pin.lat]).y;
-      const minY = 330;
+      const card = popupRef.current.getElement().getBoundingClientRect().height;
+      const top = document.querySelector(".top");
+      const headerBottom = top ? top.getBoundingClientRect().bottom : 0;
+      const minY = headerBottom + card + 24;
       if (y < minY) map.panBy([0, y - minY], { duration: 350 });
     },
-    [confirmLit, removeHouse]
+    [confirmLit, voteWow, removeHouse]
   );
   openPopupRef.current = openPopup;
 
@@ -366,7 +395,10 @@ export default function LightsMap() {
       el.className = "zone-label";
       const name = document.createElement("b");
       const meta = document.createElement("span");
-      meta.textContent = `${n} houses`;
+      const stars = f.properties.shows || 0;
+      meta.textContent = showOnlyRef.current
+        ? `${n} showstoppers 🤩`
+        : `${n} houses${stars ? ` • ${stars} 🤩` : ""}`;
       el.append(name, meta);
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -491,7 +523,7 @@ export default function LightsMap() {
           cluster: true,
           clusterMaxZoom: CLUSTER_MAX_ZOOM,
           clusterRadius: 44,
-          clusterProperties: { fresh: ["+", ["get", "fresh"]] },
+          clusterProperties: { fresh: ["+", ["get", "fresh"]], shows: ["+", ["get", "s"]] },
         });
 
         const clustered = ["has", "point_count"];
@@ -879,6 +911,22 @@ export default function LightsMap() {
     [query, dropAt, say]
   );
 
+  const toggleShowOnly = useCallback(() => {
+    const next = !showOnlyRef.current;
+    if (next && !pinsRef.current.some(isShowstopper)) {
+      say("No Showstoppers yet. Know one worth the drive? Tap 🤩 on its card.", 4500);
+      return;
+    }
+    showOnlyRef.current = next;
+    setShowOnly(next);
+    haptic(10);
+    // Labels carry the filter in their text, so rebuild them.
+    for (const z of zonesRef.current.values()) z.marker.remove();
+    zonesRef.current.clear();
+    setPins(pinsRef.current);
+    if (next) say("Showing Showstoppers only 🤩");
+  }, [setPins, say]);
+
   const toggleMute = useCallback(() => {
     const next = !mutedRef.current;
     mutedRef.current = next;
@@ -933,9 +981,18 @@ export default function LightsMap() {
             <small>Christmas lights around Jacksonville</small>
           </div>
           <div className="count">
-            <b>{count === null ? "…" : count}</b>
-            {count === 1 ? "house lit" : "houses lit"}
+            <b>{count === null ? "…" : showOnly ? shows : count}</b>
+            {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
           </div>
+          <button
+            className="mute wow-toggle"
+            onClick={toggleShowOnly}
+            aria-pressed={showOnly}
+            aria-label={showOnly ? "Show all houses" : "Show Showstoppers only"}
+            title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
+          >
+            🤩
+          </button>
           <button
             className="mute"
             onClick={toggleMute}
@@ -1037,6 +1094,16 @@ export default function LightsMap() {
               <button onClick={() => setTrayOpen(false)}>Done</button>
             </div>
             <div className="chips">
+              <button
+                className="chip chip-wow"
+                aria-pressed={drop.vibes.includes(WOW)}
+                onClick={() => toggleVibe(WOW)}
+              >
+                <span className="e" aria-hidden="true">
+                  🤩
+                </span>
+                Worth the Drive
+              </button>
               {VIBES.map((v) => {
                 const on = drop.vibes.includes(v.id);
                 return (

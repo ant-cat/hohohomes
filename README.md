@@ -11,6 +11,7 @@ footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 �
 - Stores only coordinates, vibe tag counts, timestamps (and, for older pins, a 1-3 rating and short notes). No accounts, no IPs kept.
 - Dropping a pin returns a random token, kept on the pin for 30 minutes and never sent to other visitors, that lets the same person undo it, move it or change its vibes (`PATCH /api/pins`)
 - `POST /api/pins/:id/lit` confirms a house is lit tonight (once per visitor per house every 20 minutes)
+- `POST /api/pins/:id/wow` is a positive-only "Worth the Drive 🤩" vote (once per visitor per house every 12 hours). Three votes make a house a Showstopper: a bigger starburst light, a badge on its card, a count on its Hot Zone, and the 🤩 "Showstoppers only" filter in the header. Nothing ranks a house down, and the old 1-3 star grades are no longer shown.
 - Without `BLOB_READ_WRITE_TOKEN`, `next dev` keeps pins in memory so you can try it locally
 - Abuse guard: reports within 20 m merge into one house, 20 adds per hour per visitor (in memory), Jacksonville-area bounds, 5,000-house cap
 - `GET /api/pins` is cached at the edge for 30 s
