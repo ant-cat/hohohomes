@@ -14,6 +14,7 @@ footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 �
 - Without `BLOB_READ_WRITE_TOKEN`, `next dev` keeps pins in memory so you can try it locally
 - Abuse guard: reports within 20 m merge into one house, 20 adds per hour per visitor (in memory), Jacksonville-area bounds, 5,000-house cap
 - `GET /api/pins` is cached at the edge for 30 s
+- The map opens on the visitor's part of Jacksonville: precise location only if they've already allowed it, otherwise Vercel's city-level IP location (`GET /api/where`, never stored). Anyone outside the area sees Jacksonville.
 
 Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 

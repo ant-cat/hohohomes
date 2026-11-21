@@ -427,6 +427,35 @@ export default function LightsMap() {
         return;
       }
       map.touchZoomRotate.disableRotation();
+
+      // Open where the visitor is, if they're in the Jacksonville area. Never prompts:
+      // precise location only if they've already allowed it, otherwise the rough
+      // city-level guess from their IP. Gives up the moment they move the map themselves.
+      let touched = false;
+      map.once("dragstart", () => (touched = true));
+      map.on("zoomstart", (e) => e.originalEvent && (touched = true));
+      const openOn = (lat, lng, zoom) => {
+        if (cancelled || touched || sessionRef.current || modeRef.current !== "idle") return;
+        if (!inBounds(lat, lng)) return;
+        map.easeTo({ center: [lng, lat], zoom, duration: 1200, essential: true });
+      };
+      (async () => {
+        try {
+          const perm = navigator.permissions && (await navigator.permissions.query({ name: "geolocation" }));
+          if (perm && perm.state === "granted") {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => openOn(pos.coords.latitude, pos.coords.longitude, 14.5),
+              () => {},
+              { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 }
+            );
+            return;
+          }
+        } catch {}
+        try {
+          const where = await (await fetch("/api/where")).json();
+          if (Number.isFinite(where.lat)) openOn(where.lat, where.lng, 12.5);
+        } catch {}
+      })();
       mapRef.current = map;
       map.on("error", (e) => console.error("map error", e && e.error));
 
