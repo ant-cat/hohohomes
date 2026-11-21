@@ -878,6 +878,11 @@ export default function LightsMap() {
 
       <div className="stack">
         <div className="credits">
+          {!creditsOpen && (
+            <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
+              Created by <b>Ant.Cat</b>
+            </a>
+          )}
           {creditsOpen && (
             <div className="credits-text glass">
               <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
