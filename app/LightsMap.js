@@ -69,7 +69,11 @@ async function api(method, url, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Could not save that, try again.");
+  if (!res.ok) {
+    // Our API sends { error: "text" }; Vercel's own errors send { error: { code, message } }.
+    const msg = typeof data.error === "string" ? data.error : "";
+    throw new Error(msg || (res.status === 429 ? "Slow down a little and try again." : "Could not save that, try again."));
+  }
   return data;
 }
 
