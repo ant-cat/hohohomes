@@ -13,3 +13,5 @@ Anyone can add a house with one tap ("I see lights here"), by tapping the map, o
 Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 
 Env: `BLOB_READ_WRITE_TOKEN` (set by connecting the Blob store to the Vercel project), `HIDDEN_PIN_IDS` (optional, comma-separated pin ids to hide).
+
+Pushes to `main` on GitHub deploy to production automatically.
