@@ -1,4 +1,5 @@
-import { readPins, addPin, changeReport, cleanNote, inBounds } from "../../../lib/pins";
+import { readCells, addPin, changeReport, cleanNote, inUSA } from "../../../lib/pins";
+import { CELL_RE } from "../../../lib/region";
 import { json, clientIp, rateLimiter, readJson } from "../../../lib/http";
 
 export const dynamic = "force-dynamic";
@@ -16,17 +17,24 @@ function readSpot(body) {
   const lat = Number(body && body.lat);
   const lng = Number(body && body.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { error: json({ error: "Missing location." }, 400) };
-  if (!inBounds(lat, lng)) {
-    return { error: json({ error: "For now HoHoHomes only covers the Jacksonville area." }, 400) };
+  if (!inUSA(lat, lng)) {
+    return { error: json({ error: "For now HoHoHomes only covers the United States." }, 400) };
   }
   return { lat, lng };
 }
 
-export async function GET() {
+const MAX_CELLS = 40;
+
+// The houses in some cells: GET /api/pins?cells=30_-82,30_-81
+export async function GET(req) {
+  const cells = [...new Set((new URL(req.url).searchParams.get("cells") || "").split(",").filter(Boolean))];
+  if (!cells.length || cells.length > MAX_CELLS || !cells.every((c) => CELL_RE.test(c))) {
+    return json({ error: "Bad request." }, 400);
+  }
   try {
-    const { pins } = await readPins();
+    const data = await readCells(cells);
     // Cached at Vercel's edge for 30 s, so reads stay nearly free.
-    return json({ pins }, 200, "public, max-age=0, s-maxage=30, stale-while-revalidate=300");
+    return json(data, 200, "public, max-age=0, s-maxage=30, stale-while-revalidate=300");
   } catch (err) {
     console.error(err);
     return json({ error: "Could not load the map right now." }, 500);

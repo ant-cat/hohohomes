@@ -2,13 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
+import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48 } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
 
-const JAX = [-81.6557, 30.3322];
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
-const BOUNDS = { minLat: 29.6, maxLat: 31.0, minLng: -82.3, maxLng: -81.0 };
+// Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
+// it downloads the houses of the cells in view.
+const LOAD_ZOOM = 7.5;
+const MAX_LOAD_CELLS = 40;
+const CELL_STALE_MS = 2 * 60 * 1000;
 
 // Zoomed out, houses gather into glowing Hot Zones; from ORB_ZOOM in, each house is a twinkling light.
 const CLUSTER_MAX_ZOOM = 13;
@@ -27,9 +31,6 @@ const SNOW = Array.from({ length: 16 }, (_, i) => ({
   dx: `${((i * 17) % 21) - 10}px`,
 }));
 
-function inBounds(lat, lng) {
-  return lat >= BOUNDS.minLat && lat <= BOUNDS.maxLat && lng >= BOUNDS.minLng && lng <= BOUNDS.maxLng;
-}
 
 function hash(s) {
   let h = 2166136261;
@@ -101,6 +102,8 @@ export default function LightsMap() {
   const lastWriteRef = useRef(0);
   const vibeTimerRef = useRef(null);
   const openPopupRef = useRef(() => {});
+  const cellsRef = useRef(new Map()); // cell -> { pins, at }: the houses downloaded so far
+  const summaryRef = useRef(null); // cell -> { n, s, lat, lng }: houses per cell, nationwide
   const dropAtRef = useRef(() => {});
 
   const [count, setCount] = useState(null);
@@ -189,57 +192,188 @@ export default function LightsMap() {
     }
   }, []);
 
+  // Redraws everything from the downloaded cells and the national summary.
   const setPins = useCallback(
     (pins) => {
       pinsRef.current = pins;
-      setCount(pins.length);
-      setShows(pins.filter(isShowstopper).length);
-      const src = mapRef.current && mapRef.current.getSource("pins");
+      // National totals: downloaded cells count exactly, the rest come from the summary.
+      let total = pins.length;
+      let stars = pins.filter(isShowstopper).length;
+      const summary = summaryRef.current || {};
+      for (const [cell, v] of Object.entries(summary)) {
+        if (cellsRef.current.has(cell)) continue;
+        total += v.n;
+        stars += v.s;
+      }
+      if (summaryRef.current || pins.length) setCount(total);
+      setShows(stars);
+      const map = mapRef.current;
+      const src = map && map.getSource("pins");
       if (src) src.setData(toGeoJSON(showOnlyRef.current ? pins.filter(isShowstopper) : pins));
+      const sum = map && map.getSource("summary");
+      if (sum) {
+        sum.setData({
+          type: "FeatureCollection",
+          features: Object.entries(summary)
+            .filter(([, v]) => v.n && (!showOnlyRef.current || v.s))
+            .map(([cell, v]) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [v.lng, v.lat] },
+              properties: { cell, n: showOnlyRef.current ? v.s : v.n, s: v.s },
+            })),
+        });
+      }
       syncOrbs();
     },
     [syncOrbs]
   );
 
+  const flatPins = () => [...cellsRef.current.values()].flatMap((c) => c.pins);
+
+  // Takes cells fresh from the server (after a load or a save) and redraws.
+  const applyCells = useCallback(
+    (cells) => {
+      if (!cells) return;
+      const now = Date.now();
+      const summary = (summaryRef.current ||= {});
+      for (const [cell, pins] of Object.entries(cells)) {
+        cellsRef.current.set(cell, { pins, at: now });
+        if (!pins.length) {
+          delete summary[cell];
+          continue;
+        }
+        let lat = 0;
+        let lng = 0;
+        for (const p of pins) {
+          lat += p.lat;
+          lng += p.lng;
+        }
+        summary[cell] = { n: pins.length, s: pins.filter(isShowstopper).length, lat: lat / pins.length, lng: lng / pins.length };
+      }
+      setPins(flatPins());
+    },
+    [setPins]
+  );
+
+  // Changes one house locally right away; returns an undo for when the save fails.
+  const patchPin = useCallback(
+    (id, change) => {
+      const before = new Map(cellsRef.current);
+      for (const [cell, v] of cellsRef.current) {
+        if (v.pins.some((p) => p.id === id)) {
+          cellsRef.current.set(cell, { ...v, pins: v.pins.map((p) => (p.id === id ? change(p) : p)) });
+        }
+      }
+      setPins(flatPins());
+      return () => {
+        cellsRef.current = before;
+        setPins(flatPins());
+      };
+    },
+    [setPins]
+  );
+
+  const pinCell = (id) => {
+    const pin = pinsRef.current.find((p) => p.id === id);
+    return pin ? cellOf(pin.lat, pin.lng) : "";
+  };
+
+  // Downloads the houses of the cells in view (only cells the summary says have any).
+  const loadingRef = useRef(false);
+  const loadCells = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map || !summaryRef.current || loadingRef.current || map.getZoom() < LOAD_ZOOM) return;
+    const b = map.getBounds();
+    const c = map.getCenter();
+    const now = Date.now();
+    const need = cellsInBounds(b.getSouth() - 0.25, b.getWest() - 0.25, b.getNorth() + 0.25, b.getEast() + 0.25)
+      .filter((cell) => summaryRef.current[cell])
+      .filter((cell) => {
+        const have = cellsRef.current.get(cell);
+        return !have || now - have.at > CELL_STALE_MS;
+      })
+      .map((cell) => {
+        const [lat, lng] = cell.split("_").map(Number);
+        return [(lat + 0.5 - c.lat) ** 2 + (lng + 0.5 - c.lng) ** 2, cell];
+      })
+      .sort((x, y) => x[0] - y[0])
+      .slice(0, MAX_LOAD_CELLS)
+      .map((x) => x[1])
+      .sort();
+    if (!need.length) return;
+    loadingRef.current = true;
+    try {
+      const data = await (await fetch(`/api/pins?cells=${need.join(",")}`)).json();
+      applyCells(data.cells);
+    } catch {
+    } finally {
+      loadingRef.current = false;
+    }
+  }, [applyCells]);
+
+  const loadSummary = useCallback(async () => {
+    try {
+      const data = await (await fetch("/api/summary")).json();
+      if (!data.cells) throw new Error();
+      // Keep what this visitor just saved: their cells are newer than the cached summary.
+      const fresh = {};
+      for (const [cell, v] of Object.entries(data.cells)) fresh[cell] = v;
+      const recent = Date.now() - lastWriteRef.current < 2 * 60 * 1000;
+      if (recent && summaryRef.current) {
+        for (const [cell, v] of cellsRef.current) {
+          if (Date.now() - v.at < 2 * 60 * 1000) {
+            if (summaryRef.current[cell]) fresh[cell] = summaryRef.current[cell];
+            else delete fresh[cell];
+          }
+        }
+      }
+      summaryRef.current = fresh;
+      setPins(flatPins());
+      loadCells();
+    } catch {
+      if (!summaryRef.current) setCount(0);
+    }
+  }, [setPins, loadCells]);
+
   const confirmLit = useCallback(
     async (id) => {
       haptic(20);
       if (!mutedRef.current) chime(false);
-      const before = pinsRef.current;
+      const cell = pinCell(id);
       const now = Date.now();
-      setPins(before.map((p) => (p.id === id ? { ...p, l: now } : p)));
+      const revert = patchPin(id, (p) => ({ ...p, l: now }));
       try {
-        const data = await api("POST", `/api/pins/${id}/lit`);
+        const data = await api("POST", `/api/pins/${id}/lit?cell=${cell}`);
         lastWriteRef.current = Date.now();
         rememberConfirmed(id);
-        if (data.pins) setPins(data.pins);
+        applyCells(data.cells);
       } catch (err) {
-        setPins(before);
+        revert();
         say(err.message);
         throw err;
       }
     },
-    [setPins, say]
+    [patchPin, applyCells, say]
   );
 
   const voteWow = useCallback(
     async (id) => {
       haptic(25);
       if (!mutedRef.current) chime(false);
-      const before = pinsRef.current;
-      setPins(before.map((p) => (p.id === id ? { ...p, w: (p.w || 0) + 1 } : p)));
+      const cell = pinCell(id);
+      const revert = patchPin(id, (p) => ({ ...p, w: (p.w || 0) + 1 }));
       try {
-        const data = await api("POST", `/api/pins/${id}/wow`);
+        const data = await api("POST", `/api/pins/${id}/wow?cell=${cell}`);
         lastWriteRef.current = Date.now();
         rememberVoted(id);
-        if (data.pins) setPins(data.pins);
+        applyCells(data.cells);
       } catch (err) {
-        setPins(before);
+        revert();
         say(err.message);
         throw err;
       }
     },
-    [setPins, say]
+    [patchPin, applyCells, say]
   );
 
   // Owner moderation. Visit /?admin=<ADMIN_KEY> once to turn it on in this browser, /?admin=off to turn it off.
@@ -248,19 +382,22 @@ export default function LightsMap() {
   const removeHouse = useCallback(
     async (id) => {
       try {
-        const res = await fetch(`/api/pins/${id}`, { method: "DELETE", headers: { "x-admin-key": adminKeyRef.current } });
+        const res = await fetch(`/api/pins/${id}?cell=${pinCell(id)}`, {
+          method: "DELETE",
+          headers: { "x-admin-key": adminKeyRef.current },
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Could not remove that, try again.");
         lastWriteRef.current = Date.now();
         if (popupRef.current) popupRef.current.remove();
-        setPins(data.pins);
+        applyCells(data.cells);
         say("House removed");
       } catch (err) {
         say(err.message);
         throw err;
       }
     },
-    [setPins, say]
+    [applyCells, say]
   );
 
   const openPopup = useCallback(
@@ -356,6 +493,22 @@ export default function LightsMap() {
     map.flyTo({ center, zoom, speed: 1.1, curve: 1.5, essential: true });
   }, []);
 
+  // Tapping a national glow: a merged one zooms a step until it splits; a single city flies in.
+  const flyToRegionRef = useRef(() => {});
+  flyToRegionRef.current = async (f) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const center = f.geometry.coordinates;
+    const id = f.properties.cluster_id;
+    if (id !== undefined) {
+      try {
+        const z = await map.getSource("summary").getClusterExpansionZoom(id);
+        if (z < LOAD_ZOOM - 1) return map.easeTo({ center, zoom: z + 0.3, duration: 900, essential: true });
+      } catch {}
+    }
+    map.flyTo({ center, zoom: 10.5, speed: 1.4, essential: true });
+  };
+
   // Floating "San Marco • 14 houses" labels on the Hot Zones in view.
   const syncZones = useCallback(() => {
     const map = mapRef.current;
@@ -363,7 +516,17 @@ export default function LightsMap() {
     if (!map || !lib) return;
     const labels = zonesRef.current;
     const want = new Map();
-    if (map.getZoom() < ORB_ZOOM && map.getLayer("zone-halo")) {
+    const national = map.getZoom() < LOAD_ZOOM;
+    if (national && map.getLayer("region-halo")) {
+      const feats = map
+        .queryRenderedFeatures({ layers: ["region-halo"] })
+        .sort((a, b) => b.properties.n - a.properties.n);
+      for (const f of feats) {
+        const id = f.properties.cluster_id;
+        const key = id !== undefined ? `rc:${id}:${f.properties.n}` : `r:${f.properties.cell}:${f.properties.n}:${f.properties.s}`;
+        if (!want.has(key) && want.size < MAX_ZONE_LABELS) want.set(key, f);
+      }
+    } else if (map.getZoom() < ORB_ZOOM && map.getLayer("zone-halo")) {
       const feats = map
         .queryRenderedFeatures({ layers: ["zone-halo"] })
         .sort((a, b) => b.properties.point_count - a.properties.point_count);
@@ -373,11 +536,19 @@ export default function LightsMap() {
       }
     }
     // Biggest zones get labels first; skip any that would sit on top of another.
+    // Near a screen edge a label hangs inward so it isn't cut off; overlap checks use where it really sits.
     const placed = [];
+    const anchors = new Map();
+    const w = map.getContainer().clientWidth;
     for (const [key, f] of [...want]) {
       const pt = map.project(f.geometry.coordinates);
-      if (placed.some((q) => Math.abs(q.x - pt.x) < 150 && Math.abs(q.y - pt.y) < 34)) want.delete(key);
-      else placed.push(pt);
+      const anchor = pt.x < 90 ? "left" : pt.x > w - 90 ? "right" : "center";
+      const cx = pt.x + (anchor === "left" ? 75 : anchor === "right" ? -75 : 0);
+      if (placed.some((q) => Math.abs(q.x - cx) < 160 && Math.abs(q.y - pt.y) < 34)) want.delete(key);
+      else {
+        placed.push({ x: cx, y: pt.y });
+        anchors.set(key, anchor);
+      }
     }
     for (const [key, z] of labels) {
       if (!want.has(key)) {
@@ -385,28 +556,41 @@ export default function LightsMap() {
         labels.delete(key);
       }
     }
-    const precision = map.getZoom() < 11 ? 2 : 3;
+    const precision = national ? 1 : map.getZoom() < 11 ? 2 : 3;
     for (const [key, f] of want) {
       if (labels.has(key)) continue;
-      const n = f.properties.point_count;
+      const n = national ? f.properties.n : f.properties.point_count;
       const [lng, lat] = f.geometry.coordinates;
       const el = document.createElement("button");
       el.type = "button";
       el.className = "zone-label";
       const name = document.createElement("b");
       const meta = document.createElement("span");
-      const stars = f.properties.shows || 0;
+      const stars = (national ? f.properties.s : f.properties.shows) || 0;
       meta.textContent = showOnlyRef.current
-        ? `${n} showstoppers 🤩`
+        ? `${n} ${n === 1 ? "showstopper" : "showstoppers"} 🤩`
         : `${n} houses${stars ? ` • ${stars} 🤩` : ""}`;
       el.append(name, meta);
       el.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (modeRef.current === "idle") zoomIntoZone(f.properties.cluster_id, [lng, lat]);
+        if (modeRef.current !== "idle") return;
+        if (national) flyToRegionRef.current(f);
+        else zoomIntoZone(f.properties.cluster_id, [lng, lat]);
       });
-      const marker = new lib.Marker({ element: el, anchor: "center" }).setLngLat([lng, lat]).addTo(map);
+      const marker = new lib.Marker({ element: el, anchor: anchors.get(key) || "center" }).setLngLat([lng, lat]).addTo(map);
       labels.set(key, { marker });
-      placeName(lng, lat, precision)
+      // A merged glow is named after its biggest city.
+      const nameAt =
+        national && f.properties.cluster_id !== undefined
+          ? map
+              .getSource("summary")
+              .getClusterLeaves(f.properties.cluster_id, 200, 0)
+              .then((leaves) => {
+                const top = leaves.reduce((a, b) => (b.properties.n > a.properties.n ? b : a));
+                return placeName(top.geometry.coordinates[0], top.geometry.coordinates[1], precision, "city");
+              })
+          : placeName(lng, lat, precision, national ? "city" : "hood");
+      nameAt
         .then((place) => {
           if (place && el.isConnected) {
             name.textContent = place;
@@ -421,13 +605,8 @@ export default function LightsMap() {
   useEffect(() => {
     let cancelled = false;
     let map;
-    // Load the houses on their own, so the count shows even if the map can't draw.
-    fetch("/api/pins")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && Array.isArray(data.pins)) setPins(data.pins);
-      })
-      .catch(() => !cancelled && setCount(0));
+    // The national summary loads on its own, so the count shows even if the map can't draw.
+    loadSummary();
 
     (async () => {
       let maplibregl;
@@ -444,9 +623,10 @@ export default function LightsMap() {
         map = new maplibregl.Map({
           container: mapEl.current,
           style: STYLE,
-          center: JAX,
-          zoom: 10.3,
-          minZoom: 8,
+          // Fit the lower 48 to whatever screen this is.
+          bounds: LOWER_48,
+          fitBoundsOptions: { padding: { top: 150, bottom: 140, left: 16, right: 16 } },
+          minZoom: 1.5,
           maxZoom: 19,
           // Credits live in our own (i) toggle above the dock, so nothing overlaps.
           attributionControl: false,
@@ -460,7 +640,7 @@ export default function LightsMap() {
       }
       map.touchZoomRotate.disableRotation();
 
-      // Open where the visitor is, if they're in the Jacksonville area. Never prompts:
+      // Open where the visitor is, if they're in the US. Never prompts:
       // precise location only if they've already allowed it, otherwise the rough
       // city-level guess from their IP. Gives up the moment they move the map themselves.
       let touched = false;
@@ -468,7 +648,7 @@ export default function LightsMap() {
       map.on("zoomstart", (e) => e.originalEvent && (touched = true));
       const openOn = (lat, lng, zoom) => {
         if (cancelled || touched || sessionRef.current || modeRef.current !== "idle") return;
-        if (!inBounds(lat, lng)) return;
+        if (!inUSA(lat, lng)) return;
         map.easeTo({ center: [lng, lat], zoom, duration: 1200, essential: true });
       };
       (async () => {
@@ -485,7 +665,7 @@ export default function LightsMap() {
         } catch {}
         try {
           const where = await (await fetch("/api/where")).json();
-          if (Number.isFinite(where.lat)) openOn(where.lat, where.lng, 12.5);
+          if (Number.isFinite(where.lat)) openOn(where.lat, where.lng, 11);
         } catch {}
       })();
       mapRef.current = map;
@@ -517,6 +697,43 @@ export default function LightsMap() {
           } catch {}
         }
 
+        // The national view: one glow per cell with houses.
+        // Zoomed far out, nearby cells merge into one glow (a city that straddles a cell line, or a
+        // region), with their counts added up.
+        map.addSource("summary", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+          cluster: true,
+          clusterRadius: 45,
+          clusterMaxZoom: 6,
+          clusterProperties: { n: ["+", ["get", "n"]], s: ["+", ["get", "s"]] },
+        });
+        const regionSize = ["interpolate", ["linear"], ["get", "n"], 1, 12, 10, 20, 100, 34, 1000, 54];
+        map.addLayer({
+          id: "region-halo",
+          type: "circle",
+          source: "summary",
+          maxzoom: LOAD_ZOOM,
+          paint: { "circle-radius": regionSize, "circle-color": "#ffb23f", "circle-blur": 1, "circle-opacity": 0.55 },
+        });
+        map.addLayer({
+          id: "region-core",
+          type: "circle",
+          source: "summary",
+          maxzoom: LOAD_ZOOM,
+          paint: {
+            "circle-radius": ["*", 0.4, regionSize],
+            "circle-color": "#ffe7a8",
+            "circle-blur": 0.9,
+            "circle-opacity": 0.7,
+          },
+        });
+        map.on("click", "region-halo", (e) => {
+          if (modeRef.current !== "idle") return;
+          const f = e.features && e.features[0];
+          if (f) flyToRegionRef.current(f);
+        });
+
         map.addSource("pins", {
           type: "geojson",
           data: toGeoJSON(pinsRef.current),
@@ -537,6 +754,7 @@ export default function LightsMap() {
           type: "circle",
           source: "pins",
           filter: clustered,
+          minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
             "circle-radius": zoneSize,
@@ -550,6 +768,7 @@ export default function LightsMap() {
           type: "circle",
           source: "pins",
           filter: clustered,
+          minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
             "circle-radius": ["*", 0.42, zoneSize],
@@ -564,6 +783,7 @@ export default function LightsMap() {
           type: "circle",
           source: "pins",
           filter: single,
+          minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 13, 12],
@@ -577,6 +797,7 @@ export default function LightsMap() {
           type: "circle",
           source: "pins",
           filter: single,
+          minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 1.6, 13, 3],
@@ -595,11 +816,12 @@ export default function LightsMap() {
           const f = e.features && e.features[0];
           if (f) map.flyTo({ center: f.geometry.coordinates, zoom: 16.5, speed: 1.2, essential: true });
         });
-        for (const layer of ["zone-halo", "spark-glow"]) {
+        for (const layer of ["zone-halo", "spark-glow", "region-halo"]) {
           map.on("mouseenter", layer, () => (map.getCanvas().style.cursor = "pointer"));
           map.on("mouseleave", layer, () => (map.getCanvas().style.cursor = ""));
         }
-        syncOrbs();
+        setPins(flatPins());
+        loadCells();
       });
 
       let pending = false;
@@ -611,7 +833,10 @@ export default function LightsMap() {
           syncOrbs();
         }, 200);
       });
-      map.on("moveend", syncOrbs);
+      map.on("moveend", () => {
+        syncOrbs();
+        loadCells();
+      });
       map.on("idle", syncZones);
 
       map.on("click", (e) => {
@@ -628,23 +853,20 @@ export default function LightsMap() {
       if (map) map.remove();
       mapRef.current = null;
     };
-  }, [setPins, syncOrbs, syncZones, zoomIntoZone]);
+  }, [setPins, syncOrbs, syncZones, zoomIntoZone, loadSummary, loadCells]);
 
   // Dim houses as they go stale, and pick up other people's houses now and then.
   useEffect(() => {
     const tick = setInterval(() => setPins(pinsRef.current), 60 * 1000);
     const refresh = setInterval(() => {
       if (document.hidden || sessionRef.current || Date.now() - lastWriteRef.current < 90 * 1000) return;
-      fetch("/api/pins")
-        .then((r) => r.json())
-        .then((data) => Array.isArray(data.pins) && setPins(data.pins))
-        .catch(() => {});
+      loadSummary(); // then re-downloads cells in view that are more than 2 minutes old
     }, 3 * 60 * 1000);
     return () => {
       clearInterval(tick);
       clearInterval(refresh);
     };
-  }, [setPins]);
+  }, [setPins, loadSummary]);
 
   // --- Dropping a pin -------------------------------------------------------
 
@@ -657,13 +879,13 @@ export default function LightsMap() {
       try {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "vibes", vibes: s.vibes });
         lastWriteRef.current = Date.now();
-        setPins(data.pins);
+        applyCells(data.cells);
       } catch (err) {
         s.sent = null;
         say(err.message);
       }
     },
-    [setPins, say]
+    [applyCells, say]
   );
 
   const endSession = useCallback(() => {
@@ -683,8 +905,9 @@ export default function LightsMap() {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "move", lat: lngLat.lat, lng: lngLat.lng });
         lastWriteRef.current = Date.now();
         s.pinId = data.pin.id;
+        s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
-        setPins(data.pins);
+        applyCells(data.cells);
         if (sessionRef.current === s) {
           setDrop((d) => d && { ...d, merged: data.merged, snapped: Boolean(auto), adjusted: !auto, rough: false });
         }
@@ -692,7 +915,7 @@ export default function LightsMap() {
         say(err.message);
       }
     },
-    [setPins, say]
+    [applyCells, say]
   );
 
   // After the camera settles and house footprints are loaded, nudge a GPS pin onto the nearest house.
@@ -747,7 +970,7 @@ export default function LightsMap() {
           s.pinId = data.pin.id;
           s.merged = data.merged;
           s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
-          setPins(data.pins);
+          applyCells(data.cells);
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
           pushVibes(s);
           return true;
@@ -762,7 +985,7 @@ export default function LightsMap() {
           return false;
         });
     },
-    [endSession, autoSnap, setPins, pushVibes, say]
+    [endSession, autoSnap, applyCells, pushVibes, say]
   );
   dropAtRef.current = dropAt;
 
@@ -779,12 +1002,12 @@ export default function LightsMap() {
     try {
       const data = await api("PATCH", "/api/pins", { token: s.token, action: "undo" });
       lastWriteRef.current = Date.now();
-      setPins(data.pins);
+      applyCells(data.cells);
       say("Pin removed");
     } catch (err) {
       say(err.message);
     }
-  }, [setPins, say]);
+  }, [applyCells, say]);
 
   const toggleVibe = useCallback(
     (id) => {
@@ -865,7 +1088,7 @@ export default function LightsMap() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        if (!inBounds(lat, lng)) return startPicking("You look outside Jacksonville. Tap the map where the lights are.");
+        if (!inUSA(lat, lng)) return startPicking("HoHoHomes covers the US for now. Tap the map where the lights are.");
         dropAt({ lng, lat }, { snap: true, rough: accuracy > 60 });
       },
       () => startPicking("Couldn't get your location. Tap the map where the lights are."),
@@ -891,15 +1114,18 @@ export default function LightsMap() {
       primeAudio();
       const q = query.trim();
       if (!q) return;
+      const c = mapRef.current ? mapRef.current.getCenter() : { lng: USA_CENTER[0], lat: USA_CENTER[1] };
+      const near = { lat: c.lat.toFixed(3), lng: c.lng.toFixed(3) };
       try {
         const url =
-          `https://photon.komoot.io/api/?limit=1&lat=${JAX[1]}&lon=${JAX[0]}` +
-          `&bbox=${BOUNDS.minLng},${BOUNDS.minLat},${BOUNDS.maxLng},${BOUNDS.maxLat}` +
+          `https://photon.komoot.io/api/?limit=5&lat=${near.lat}&lon=${near.lng}` +
+          `&bbox=-180,17,-64,72` +
           `&q=${encodeURIComponent(q)}`;
         const res = await fetch(url);
         const data = await res.json();
-        const f = data.features && data.features[0];
-        if (!f) return say("Couldn't find that address near Jacksonville.");
+        // Nearest US match to where the map is looking.
+        const f = (data.features || []).find((x) => inUSA(x.geometry.coordinates[1], x.geometry.coordinates[0]));
+        if (!f) return say("Couldn't find that address in the US.");
         const [lng, lat] = f.geometry.coordinates;
         document.activeElement && document.activeElement.blur();
         setQuery("");
@@ -913,7 +1139,9 @@ export default function LightsMap() {
 
   const toggleShowOnly = useCallback(() => {
     const next = !showOnlyRef.current;
-    if (next && !pinsRef.current.some(isShowstopper)) {
+    const anyShowstopper =
+      pinsRef.current.some(isShowstopper) || Object.values(summaryRef.current || {}).some((v) => v.s > 0);
+    if (next && !anyShowstopper) {
       say("No Showstoppers yet. Know one worth the drive? Tap 🤩 on its card.", 4500);
       return;
     }
@@ -978,7 +1206,7 @@ export default function LightsMap() {
             <h1>
               HoHo<span>Homes</span> ✨
             </h1>
-            <small>Christmas lights around Jacksonville</small>
+            <small>Christmas lights across the USA</small>
           </div>
           <div className="count">
             <b>{count === null ? "…" : showOnly ? shows : count}</b>

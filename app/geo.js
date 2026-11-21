@@ -120,8 +120,9 @@ function store(key, value) {
   } catch {}
 }
 
-export function placeName(lng, lat, precision = 3) {
-  const key = `hh:place:${lat.toFixed(precision)},${lng.toFixed(precision)}`;
+// scale "hood" names the neighborhood (for Hot Zones); "city" names the city (for the national view).
+export function placeName(lng, lat, precision = 3, scale = "hood") {
+  const key = `hh:place:${scale}:${lat.toFixed(precision)},${lng.toFixed(precision)}`;
   if (names.has(key)) return names.get(key);
   const saved = stored(key);
   if (saved !== null) {
@@ -136,7 +137,10 @@ export function placeName(lng, lat, precision = 3) {
       const data = await res.json();
       const f = data.features && data.features[0];
       const pr = (f && f.properties) || {};
-      const name = pr.district || pr.locality || pr.street || pr.city || "";
+      const name =
+        scale === "city"
+          ? pr.city || pr.county || pr.state || ""
+          : pr.district || pr.locality || pr.street || pr.city || "";
       store(key, name);
       await new Promise((r) => setTimeout(r, 200));
       return name;
