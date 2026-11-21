@@ -45,7 +45,7 @@ function div(cls, text) {
 }
 
 // The card shown when someone taps a house.
-export function popupNode(pin, { onLit }) {
+export function popupNode(pin, { onLit, onRemove }) {
   const el = div("pop");
 
   const avg = pin.rn ? pin.rs / pin.rn : 0;
@@ -102,5 +102,23 @@ export function popupNode(pin, { onLit }) {
   a.rel = "noopener noreferrer";
   a.textContent = "Directions →";
   el.appendChild(a);
+
+  // Only shown to the owner in admin mode.
+  if (onRemove) {
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "rm-btn";
+    rm.textContent = "Remove house";
+    rm.addEventListener("click", () => {
+      if (!window.confirm("Remove this house from the map for everyone?")) return;
+      rm.disabled = true;
+      rm.textContent = "Removing…";
+      onRemove(pin.id).catch(() => {
+        rm.disabled = false;
+        rm.textContent = "Remove house";
+      });
+    });
+    el.appendChild(rm);
+  }
   return el;
 }

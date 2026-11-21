@@ -216,6 +216,27 @@ export default function LightsMap() {
     [setPins, say]
   );
 
+  // Owner moderation. Visit /?admin=<ADMIN_KEY> once to turn it on in this browser, /?admin=off to turn it off.
+  const adminKeyRef = useRef("");
+
+  const removeHouse = useCallback(
+    async (id) => {
+      try {
+        const res = await fetch(`/api/pins/${id}`, { method: "DELETE", headers: { "x-admin-key": adminKeyRef.current } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Could not remove that, try again.");
+        lastWriteRef.current = Date.now();
+        if (popupRef.current) popupRef.current.remove();
+        setPins(data.pins);
+        say("House removed");
+      } catch (err) {
+        say(err.message);
+        throw err;
+      }
+    },
+    [setPins, say]
+  );
+
   const openPopup = useCallback(
     (id) => {
       const map = mapRef.current;
@@ -225,16 +246,52 @@ export default function LightsMap() {
       if (popupRef.current) popupRef.current.remove();
       popupRef.current = new lib.Popup({ offset: 16, maxWidth: "280px" })
         .setLngLat([pin.lng, pin.lat])
-        .setDOMContent(popupNode(pin, { onLit: confirmLit }))
+        .setDOMContent(popupNode(pin, { onLit: confirmLit, onRemove: adminKeyRef.current ? removeHouse : null }))
         .addTo(map);
       // Keep the card clear of the header.
       const y = map.project([pin.lng, pin.lat]).y;
       const minY = 330;
       if (y < minY) map.panBy([0, y - minY], { duration: 350 });
     },
-    [confirmLit]
+    [confirmLit, removeHouse]
   );
   openPopupRef.current = openPopup;
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const param = url.searchParams.get("admin");
+    try {
+      adminKeyRef.current = localStorage.getItem("hh:admin") || "";
+    } catch {}
+    if (param === null) return;
+    // Take the key out of the address bar so it doesn't end up in history or screenshots.
+    url.searchParams.delete("admin");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    const forget = () => {
+      adminKeyRef.current = "";
+      try {
+        localStorage.removeItem("hh:admin");
+      } catch {}
+    };
+    if (param === "off" || !param) {
+      forget();
+      say("Admin mode off");
+      return;
+    }
+    fetch("/api/admin", { method: "POST", headers: { "x-admin-key": param } })
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        adminKeyRef.current = param;
+        try {
+          localStorage.setItem("hh:admin", param);
+        } catch {}
+        say("Admin mode on: tap a house to remove it", 5000);
+      })
+      .catch(() => {
+        forget();
+        say("That admin key didn't work.");
+      });
+  }, [say]);
 
   // Fly into a Hot Zone until its houses split into individual lights.
   // If the zone is too spread out to show at street level, go to its densest pocket.
