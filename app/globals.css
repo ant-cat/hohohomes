@@ -44,6 +44,9 @@ button { cursor: pointer; }
 .mute { width: 34px; height: 34px; flex: none; border-radius: 12px; border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.05); font-size: 15px; display: grid; place-items: center; padding: 0; }
 .mute[aria-pressed="true"] { opacity: .7; }
+.wow-toggle { opacity: .75; }
+.wow-toggle[aria-pressed="true"] { opacity: 1; border-color: var(--gold); background: var(--gold-soft);
+  box-shadow: 0 0 14px rgba(255, 201, 77, .35); }
 
 /* Snow, only inside the header card */
 .snow { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
@@ -114,6 +117,7 @@ button { cursor: pointer; }
   border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05);
   font-size: 14px; font-weight: 600; transition: background .15s, border-color .15s, box-shadow .15s; }
 .chip .e { font-size: 22px; line-height: 1; }
+.chip-wow { grid-column: 1 / -1; justify-content: center; min-height: 46px; border-color: rgba(255, 201, 77, .35); }
 .chip[aria-pressed="true"] { border-color: var(--gold); background: var(--gold-soft); color: var(--gold);
   box-shadow: inset 0 0 0 1px var(--gold), 0 0 18px rgba(255, 201, 77, .25); animation: pop .25s ease-out; }
 
@@ -138,7 +142,18 @@ button { cursor: pointer; }
   45% { opacity: .5; transform: scale(.78); }
   60% { opacity: .9; transform: scale(.95); }
 }
+/* Showstoppers: bigger, brighter, with a slow golden starburst. Everyone else keeps their twinkle. */
+.orb.show { z-index: 2; width: 44px; height: 44px; }
+.orb.show i { width: 16px; height: 16px; background: radial-gradient(circle at 38% 35%, #fff 0 28%, #ffd76a 62%);
+  box-shadow: 0 0 8px 3px #ffd76a, 0 0 26px 12px rgba(255, 190, 60, .55); }
+.orb.show::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 220, 130, .6) 0deg 5deg, transparent 5deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 34%, rgba(0, 0, 0, .6) 55%, transparent 70%);
+  mask: radial-gradient(circle, transparent 30%, #000 34%, rgba(0, 0, 0, .6) 55%, transparent 70%);
+  animation: starburst 12s linear infinite; }
+@keyframes starburst { to { transform: rotate(360deg); } }
 /* Not confirmed lit in 72 hours */
+.orb.stale::before { opacity: .35; animation: none; }
 .orb.stale i { animation: none; opacity: .32; filter: saturate(.35); box-shadow: 0 0 4px 1px var(--g); }
 .mode-picking .orb, .mode-adjusting .orb, .mode-picking .zone-label, .mode-adjusting .zone-label { pointer-events: none; }
 
@@ -173,6 +188,12 @@ button { cursor: pointer; }
 .maplibregl-popup-tip { display: none; }
 .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; padding: 2px 8px; }
 .pop-title { color: var(--gold); font-size: 17px; letter-spacing: .5px; padding-right: 20px; }
+.pop-title.show { font-weight: 800; text-shadow: 0 0 14px rgba(255, 201, 77, .6); }
+.pop-wow { color: var(--gold); font-size: 12px; margin-top: 3px; }
+.wow-btn { display: block; width: 100%; margin-top: 8px; padding: 9px 10px; border-radius: 12px; font-size: 13px;
+  font-weight: 700; color: var(--gold); background: var(--gold-soft); border: 1px solid rgba(255, 201, 77, .35); }
+.wow-btn:disabled { opacity: .75; cursor: default; }
+.wow-btn.pulse { animation: litpulse .9s ease-out; }
 .pop-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .pop-vibes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .pop-vibe { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: rgba(255, 255, 255, .07);
@@ -197,7 +218,7 @@ button { cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .snow { display: none; }
-  .orb i { animation: none; }
+  .orb i, .orb.show::before { animation: none; }
   .lightup i { animation-duration: .6s; }
   .tray, .drop-toast, .banner, .chip[aria-pressed="true"] { animation: none; }
 }
