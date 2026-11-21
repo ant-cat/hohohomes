@@ -10,6 +10,6 @@ Anyone can add a house with one tap ("I see lights here"), by tapping the map, o
 - Abuse guard: reports within 20 m merge into one house, 20 adds per hour per visitor (in memory), Jacksonville-area bounds, 5,000-house cap
 - `GET /api/pins` is cached at the edge for 30 s
 
-Live at https://hohohomes.vercel.app (the old cheerhere.vercel.app address still works).
+Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 
 Env: `BLOB_READ_WRITE_TOKEN` (set by connecting the Blob store to the Vercel project), `HIDDEN_PIN_IDS` (optional, comma-separated pin ids to hide).
