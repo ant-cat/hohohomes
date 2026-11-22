@@ -1,0 +1,31 @@
+/* Reading pages: the map's night palette, on a page that scrolls. */
+.info { min-height: 100%; padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px);
+  background: radial-gradient(1200px 500px at 50% -120px, rgba(255, 201, 77, .12), transparent 70%), var(--bg); }
+.info-head, .info-main, .info-foot { max-width: 680px; margin: 0 auto; }
+.info-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0 20px; }
+.info-brand { font: 500 22px/1 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; color: #f6efe2; text-decoration: none; }
+.info-brand span { color: var(--gold); }
+.info-cta, .info-button { display: inline-block; border-radius: 999px; padding: 10px 18px; font-weight: 700; text-decoration: none;
+  background: #f3e7cf; color: #1a1408; }
+.info-cta { padding: 8px 14px; font-size: 14px; }
+.info-main h1 { font: 500 clamp(28px, 7vw, 40px)/1.1 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  margin: 8px 0 12px; color: #f6efe2; }
+.info-main h2 { font-size: 19px; margin: 32px 0 8px; color: #f6efe2; }
+.info-main p, .info-main li { color: #dcd6c8; line-height: 1.6; font-size: 16px; }
+.info-main ul { padding-left: 20px; }
+.info-main a { color: var(--gold); }
+.info-main a.info-button { color: #1a1408; margin: 8px 0 4px; }
+.info-lead { font-size: 18px !important; color: var(--text) !important; }
+.info-stat { display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+.info-stat div { flex: 1; min-width: 130px; border: 1px solid var(--glass-line); border-radius: 16px; padding: 12px 14px; background: rgba(255,255,255,.03); }
+.info-stat b { display: block; font-size: 28px; color: var(--gold); }
+.info-stat span { color: var(--muted); font-size: 14px; }
+.info-cities { list-style: none; padding: 0 !important; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 16px; }
+.info-cities small { color: var(--muted); }
+.info-faq dt { font-weight: 700; color: var(--text); margin-top: 16px; }
+.info-faq dd { margin: 4px 0 0; color: #dcd6c8; line-height: 1.6; }
+.info-foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.info-foot a { color: var(--muted); }
+.info-by { display: block; margin-top: 8px; font-size: 12px; }
+.info-crumbs { margin: 0; font-size: 14px; color: var(--muted) !important; }
+.info-crumbs a { color: var(--muted) !important; }

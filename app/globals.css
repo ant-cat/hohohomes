@@ -94,6 +94,10 @@ button { cursor: pointer; }
   color: var(--muted); line-height: 1.4; animation: fade .2s ease-out; }
 .credits-text a { color: var(--muted); text-decoration: none; }
 .credits-text a:hover { color: var(--text); }
+.credits-text .credits-links { font-size: 12px; }
+.credits-text .credits-links a { color: var(--text); }
+.noscript { position: fixed; inset: auto 16px 16px; z-index: 50; padding: 16px; border-radius: 16px; background: var(--glass-strong); }
+.noscript a { color: var(--gold); }
 .byline { font-size: 13px; letter-spacing: .2px; color: var(--text); }
 .credits-text .byline b { font-weight: 700; color: var(--gold); }
 

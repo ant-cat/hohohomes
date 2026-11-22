@@ -1,8 +1,10 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
+import { SHORT_DESCRIPTION } from "../lib/seo";
+
 const title = "HoHoHomes · Find Christmas lights near you";
-const description = "See which streets near you are glowing tonight, and add any lights you spot with one tap. No sign-up.";
+const description = SHORT_DESCRIPTION;
 const images = [{ url: "/api/og", width: 1200, height: 630, alt: "HoHoHomes: Christmas lights near you" }];
 
 export const metadata = {
@@ -10,6 +12,8 @@ export const metadata = {
   title,
   description,
   applicationName: "HoHoHomes",
+  creator: "Ant.Cat",
+  category: "lifestyle",
   // Opened from the home screen it runs full screen; the header already leaves room for the status bar.
   appleWebApp: { capable: true, title: "HoHoHomes", statusBarStyle: "black-translucent" },
   openGraph: { type: "website", siteName: "HoHoHomes", title, description, images, url: "/" },

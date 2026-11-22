@@ -1354,6 +1354,9 @@ export default function LightsMap() {
               <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
                 Created by <b>Ant.Cat</b>
               </a>
+              <span className="credits-links">
+                <a href="/about">How it works</a> · <a href="/lights">Lights by city</a>
+              </span>
               <span className="credits-map">
                 Map:{" "}
                 <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
