@@ -226,43 +226,39 @@ button { cursor: pointer; }
   .tray, .drop-toast, .banner, .chip[aria-pressed="true"] { animation: none; }
 }
 
-/* First-visit welcome */
+/* First-visit welcome: quiet, like a holiday card */
 .welcome { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
-  padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
-  background: radial-gradient(ellipse at 50% 30%, rgba(11, 16, 32, .55), rgba(11, 16, 32, .88));
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: fade .25s ease-out; }
-.welcome-card { position: relative; width: 100%; max-width: 400px; max-height: 100%; overflow-y: auto;
-  border-radius: 24px; padding: 30px 20px 20px; background: var(--glass-strong); animation: up .3s cubic-bezier(.2, .9, .3, 1.15); }
-.welcome-lights { position: absolute; top: 0; left: 24px; right: 24px; height: 18px; display: flex;
-  justify-content: space-between; align-items: flex-start; pointer-events: none;
-  border-top: 1px solid rgba(255, 214, 140, .25); border-radius: 0 0 50% 50% / 0 0 14px 14px; }
-.welcome-lights i { width: 8px; height: 11px; margin-top: 4px; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
-  --c: #ffcf5c; background: var(--c); box-shadow: 0 0 8px 2px var(--c);
-  animation: twinkle 2.2s ease-in-out var(--d, 0s) infinite; }
-.welcome-lights i:nth-child(4n+1) { --c: #ff6b6f; }
-.welcome-lights i:nth-child(4n+2) { --c: #6ff0a6; }
-.welcome-lights i:nth-child(4n+3) { --c: #8ccfff; }
-.welcome-lights i:nth-child(odd) { margin-top: 8px; }
-.welcome-card h2 { margin: 6px 0 6px; font-size: 24px; line-height: 1.2; text-align: center; }
-.welcome-card h2 span { color: var(--gold); }
-.welcome-lead { margin: 0 0 18px; text-align: center; color: var(--text); font-size: 15px; line-height: 1.4; }
-.welcome-steps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.welcome-steps li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.35; color: var(--muted); }
-.welcome-steps .e { flex: none; width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center;
-  font-size: 21px; background: var(--gold-soft); border: 1px solid rgba(255, 201, 77, .25); }
-.welcome-steps b { display: block; color: var(--text); font-size: 15px; font-weight: 700; margin-bottom: 1px; }
-.welcome-free { margin: 0 0 16px; text-align: center; font-size: 13px; color: var(--gold); font-weight: 600; }
-.welcome-install { display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 10px 12px;
-  border-radius: 14px; background: rgba(255, 255, 255, .05); border: 1px solid var(--line);
-  font-size: 13px; line-height: 1.4; color: var(--muted); }
-.welcome-install .e { flex: none; font-size: 20px; }
-.welcome-install b { color: var(--text); }
-.share-ic { vertical-align: -2px; color: var(--gold); }
-.welcome-go { width: 100%; }
-.welcome-add { display: block; width: 100%; margin-top: 10px; padding: 13px 16px; border-radius: 16px;
-  font-size: 15px; font-weight: 700; color: var(--gold); background: var(--gold-soft); border: 1px solid rgba(255, 201, 77, .35); }
-.welcome-add:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
-.welcome-go:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);
+  background: rgba(7, 10, 22, .72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: fade .4s ease-out; }
+.welcome-card { position: relative; width: 100%; max-width: 340px; max-height: 100%; overflow-y: auto;
+  border-radius: 22px; padding: 44px 28px 26px; text-align: center; outline: none;
+  background: linear-gradient(180deg, rgba(22, 28, 52, .96), rgba(13, 18, 36, .96));
+  border: 1px solid rgba(255, 255, 255, .07); box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+  animation: settle .5s ease-out; }
+@keyframes settle { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.welcome-lights { position: absolute; top: 0; left: 36px; right: 36px; height: 20px; display: flex;
+  justify-content: space-between; pointer-events: none;
+  border-top: 1px solid rgba(255, 236, 200, .12); border-radius: 0 0 50% 50% / 0 0 12px 12px; }
+.welcome-lights i { width: 5px; height: 7px; margin-top: 5px; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  --c: #ffe2a8; background: var(--c); box-shadow: 0 0 6px 1px rgba(255, 214, 140, .45); opacity: .85;
+  animation: glimmer 4s ease-in-out var(--d, 0s) infinite; }
+.welcome-lights i:nth-child(3n+2) { --c: #ffc0b8; }
+.welcome-lights i:nth-child(3n) { --c: #cfe8d8; }
+.welcome-lights i:nth-child(odd) { margin-top: 9px; }
+@keyframes glimmer { 0%, 100% { opacity: .85; } 50% { opacity: .4; } }
+.welcome-card h2 { margin: 0 0 10px; font: 500 25px/1.2 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  letter-spacing: .2px; color: #f6efe2; }
+.welcome-lead { margin: 0 auto 26px; max-width: 250px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.welcome-steps { list-style: none; margin: 0 0 30px; padding: 22px 0 0; border-top: 1px solid rgba(255, 255, 255, .07);
+  display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.4; color: #d9d6cf; }
+.welcome-go { display: block; width: 100%; border: 0; border-radius: 14px; padding: 14px 16px;
+  font-size: 15px; font-weight: 600; letter-spacing: .2px; color: #141a30; background: #f3ead8; }
+.welcome-go:active, .welcome-add:active { transform: translateY(1px); }
+.welcome-add { display: block; width: 100%; margin-top: 8px; padding: 12px 16px; border-radius: 14px;
+  font-size: 14px; font-weight: 600; color: #e9dcc0; background: none; border: 1px solid rgba(243, 234, 216, .22); }
+.welcome-go:focus-visible, .welcome-add:focus-visible { outline: 2px solid rgba(243, 234, 216, .7); outline-offset: 3px; }
+.welcome-tip { margin: 16px 0 0; font-size: 12px; color: rgba(169, 176, 198, .8); }
 @media (prefers-reduced-motion: reduce) {
   .welcome, .welcome-card, .welcome-lights i { animation: none; }
 }

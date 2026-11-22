@@ -49,38 +49,15 @@ function installHow() {
   return "none";
 }
 
-function ShareIcon() {
-  return (
-    <svg className="share-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3v12" />
-      <path d="M7 8l5-5 5 5" />
-      <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
-    </svg>
-  );
-}
-
 const STEPS = [
-  {
-    e: "🔭",
-    t: "Zoom out to find glowing neighborhoods.",
-    s: "Zoom in and every house twinkles. Tap one for directions.",
-  },
-  {
-    e: "🎄",
-    t: "Spot lights? Tap “I see lights here.”",
-    s: "Or tap 📍 and pick the house on the map. One tap, and it's lit.",
-  },
-  {
-    e: "🤩",
-    t: "Cheer on the best ones.",
-    s: "Tap a house to mark it Lit Tonight, or vote it Worth the Drive.",
-  },
+  "Zoom out to find the glowing streets.",
+  "Tap “I see lights here” to add a house.",
+  "Tap any house to cheer it on.",
 ];
 
 // A one-time hello before the map. It never asks for location: the map does that only when you tap.
 export default function Welcome({ onClose }) {
   const cardRef = useRef(null);
-  const btnRef = useRef(null);
   const [how, setHow] = useState("none");
 
   useEffect(() => {
@@ -91,7 +68,7 @@ export default function Welcome({ onClose }) {
   }, []);
 
   useEffect(() => {
-    btnRef.current && btnRef.current.focus();
+    cardRef.current && cardRef.current.focus();
     const onKey = (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -130,63 +107,37 @@ export default function Welcome({ onClose }) {
     <div className="welcome" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={cardRef}
-        className="welcome-card glass"
+        tabIndex={-1}
+        className="welcome-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="welcome-title"
         aria-describedby="welcome-lead"
       >
         <div className="welcome-lights" aria-hidden="true">
-          {Array.from({ length: 9 }, (_, i) => (
-            <i key={i} style={{ "--d": `${-(i * 0.37).toFixed(2)}s` }} />
+          {Array.from({ length: 7 }, (_, i) => (
+            <i key={i} style={{ "--d": `${-(i * 0.9).toFixed(1)}s` }} />
           ))}
         </div>
-        <h2 id="welcome-title">
-          Welcome to HoHo<span>Homes</span> ✨
-        </h2>
+        <h2 id="welcome-title">Welcome to HoHoHomes</h2>
         <p id="welcome-lead" className="welcome-lead">
-          A map of houses with Christmas lights, added by neighbors like you.
+          Christmas lights near you, shared by neighbors. No sign-up needed.
         </p>
-        <ol className="welcome-steps">
-          {STEPS.map((s) => (
-            <li key={s.t}>
-              <span className="e" aria-hidden="true">
-                {s.e}
-              </span>
-              <span>
-                <b>{s.t}</b>
-                {s.s}
-              </span>
-            </li>
+        <ul className="welcome-steps">
+          {STEPS.map((t) => (
+            <li key={t}>{t}</li>
           ))}
-        </ol>
-
-        {how === "ios" && (
-          <p className="welcome-install">
-            <span className="e" aria-hidden="true">📲</span>
-            <span>
-              Keep it on your Home Screen: tap <b>Share</b> <ShareIcon />, then <b>Add to Home Screen</b>.
-            </span>
-          </p>
-        )}
-        {how === "android" && (
-          <p className="welcome-install">
-            <span className="e" aria-hidden="true">📲</span>
-            <span>
-              Keep it on your home screen: open your browser&apos;s <b>⋮</b> menu and tap <b>Add to Home screen</b>.
-            </span>
-          </p>
-        )}
-
-        <p className="welcome-free">No sign-up, no account. Just lights.</p>
-        <button ref={btnRef} className="primary welcome-go" onClick={onClose}>
+        </ul>
+        <button className="welcome-go" onClick={onClose}>
           Show me the lights
         </button>
         {how === "prompt" && (
           <button className="welcome-add" onClick={install}>
-            📲 Add to Home Screen
+            Add to Home Screen
           </button>
         )}
+        {how === "ios" && <p className="welcome-tip">Tip: tap Share, then Add to Home Screen.</p>}
+        {how === "android" && <p className="welcome-tip">Tip: add it to your home screen from the ⋮ menu.</p>}
       </div>
     </div>
   );
