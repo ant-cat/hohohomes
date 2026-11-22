@@ -225,3 +225,40 @@ button { cursor: pointer; }
   .lightup i { animation-duration: .6s; }
   .tray, .drop-toast, .banner, .chip[aria-pressed="true"] { animation: none; }
 }
+
+/* First-visit welcome: quiet, like a holiday card */
+.welcome { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);
+  background: rgba(7, 10, 22, .72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: fade .4s ease-out; }
+.welcome-card { position: relative; width: 100%; max-width: 340px; max-height: 100%; overflow-y: auto;
+  border-radius: 22px; padding: 44px 28px 26px; text-align: center; outline: none;
+  background: linear-gradient(180deg, rgba(22, 28, 52, .96), rgba(13, 18, 36, .96));
+  border: 1px solid rgba(255, 255, 255, .07); box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+  animation: settle .5s ease-out; }
+@keyframes settle { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.welcome-lights { position: absolute; top: 0; left: 36px; right: 36px; height: 20px; display: flex;
+  justify-content: space-between; pointer-events: none;
+  border-top: 1px solid rgba(255, 236, 200, .12); border-radius: 0 0 50% 50% / 0 0 12px 12px; }
+.welcome-lights i { width: 5px; height: 7px; margin-top: 5px; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  --c: #ffe2a8; background: var(--c); box-shadow: 0 0 6px 1px rgba(255, 214, 140, .45); opacity: .85;
+  animation: glimmer 4s ease-in-out var(--d, 0s) infinite; }
+.welcome-lights i:nth-child(3n+2) { --c: #ffc0b8; }
+.welcome-lights i:nth-child(3n) { --c: #cfe8d8; }
+.welcome-lights i:nth-child(odd) { margin-top: 9px; }
+@keyframes glimmer { 0%, 100% { opacity: .85; } 50% { opacity: .4; } }
+.welcome-card h2 { margin: 0 0 10px; font: 500 25px/1.2 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  letter-spacing: .2px; color: #f6efe2; }
+.welcome-lead { margin: 0 auto 26px; max-width: 250px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.welcome-steps { list-style: none; margin: 0 0 30px; padding: 22px 0 0; border-top: 1px solid rgba(255, 255, 255, .07);
+  display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.4; color: #d9d6cf; }
+.welcome-go { display: block; width: 100%; border: 0; border-radius: 14px; padding: 14px 16px;
+  font-size: 15px; font-weight: 600; letter-spacing: .2px; color: #141a30; background: #f3ead8; }
+.welcome-go:active, .welcome-add:active { transform: translateY(1px); }
+.welcome-add { display: block; width: 100%; margin-top: 8px; padding: 12px 16px; border-radius: 14px;
+  font-size: 14px; font-weight: 600; color: #e9dcc0; background: none; border: 1px solid rgba(243, 234, 216, .22); }
+.welcome-go:focus-visible, .welcome-add:focus-visible { outline: 2px solid rgba(243, 234, 216, .7); outline-offset: 3px; }
+.welcome-tip { margin: 16px 0 0; font-size: 12px; color: rgba(169, 176, 198, .8); }
+@media (prefers-reduced-motion: reduce) {
+  .welcome, .welcome-card, .welcome-lights i { animation: none; }
+}

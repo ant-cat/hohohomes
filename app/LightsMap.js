@@ -8,6 +8,7 @@ import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
+import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
@@ -120,6 +121,7 @@ export default function LightsMap() {
   const [trayOpen, setTrayOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [welcome, setWelcome] = useState(false); // first visit on this device
 
   useEffect(() => {
     modeRef.current = mode;
@@ -129,6 +131,13 @@ export default function LightsMap() {
     const m = loadMuted();
     mutedRef.current = m;
     setMuted(m);
+    setWelcome(shouldWelcome());
+  }, []);
+
+  const closeWelcome = useCallback(() => {
+    rememberWelcomed();
+    setWelcome(false);
+    if (!mutedRef.current) primeAudio(); // this tap lets iOS play the chime later
   }, []);
 
   const say = useCallback((msg, ms = 3200) => {
@@ -1230,10 +1239,10 @@ export default function LightsMap() {
 
   return (
     <main className={`app mode-${mode}`}>
-      <div ref={mapEl} className="map" />
+      <div ref={mapEl} className="map" inert={welcome || undefined} />
       {mapError && <div className="maperror">{mapError}</div>}
 
-      <div className="top">
+      <div className="top" inert={welcome || undefined}>
         <div className="brand glass">
           <div className="snow" aria-hidden="true">
             {SNOW.map((f, i) => (
@@ -1301,7 +1310,7 @@ export default function LightsMap() {
         </div>
       )}
 
-      <div className="stack">
+      <div className="stack" inert={welcome || undefined}>
         <div className="credits">
           {!creditsOpen && (
             <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
@@ -1418,6 +1427,8 @@ export default function LightsMap() {
           </div>
         )}
       </div>
+
+      {welcome && <Welcome onClose={closeWelcome} />}
     </main>
   );
 }
