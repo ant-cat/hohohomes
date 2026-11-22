@@ -64,6 +64,13 @@ const FLAKES = Array.from({ length: 14 }, (_, i) => ({
   dx: `${((i * 17) % 25) - 12}px`,
 }));
 
+// Eleven bulbs that each twinkle on their own beat, like the favicon. Fixed values, so the server
+// and phone agree; negative delays start them mid-twinkle instead of all in step.
+const BULBS = Array.from({ length: 11 }, (_, i) => ({
+  t: `${(1.6 + ((i * 7) % 5) * 0.25).toFixed(2)}s`,
+  d: `${-(((i * 37) % 23) / 10).toFixed(1)}s`,
+}));
+
 // A one-time hello before the map. It never asks for location: the map does that only when you tap.
 export default function Welcome({ onClose }) {
   const cardRef = useRef(null);
@@ -129,8 +136,8 @@ export default function Welcome({ onClose }) {
           ))}
         </div>
         <div className="welcome-lights" aria-hidden="true">
-          {Array.from({ length: 11 }, (_, i) => (
-            <i key={i} style={{ "--d": `${(i * 0.18).toFixed(2)}s` }} />
+          {BULBS.map((b, i) => (
+            <i key={i} style={{ "--t": b.t, "--d": b.d }} />
           ))}
         </div>
         <h2 id="welcome-title">Welcome to HoHoHomes</h2>
