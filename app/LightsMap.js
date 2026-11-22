@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
+import ScoutBadges from "./ScoutBadges";
+import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
 import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
+import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
@@ -30,6 +33,8 @@ const SNOW = Array.from({ length: 16 }, (_, i) => ({
   delay: `${-((i * 29) % 11)}s`,
   dx: `${((i * 17) % 21) - 10}px`,
 }));
+// A string of fairy lights along the top of the bottom dock, each with its own twinkle.
+const DOCK_LIGHTS = Array.from({ length: 11 }, (_, i) => `${-((i * 0.73) % 2.6).toFixed(2)}s`);
 
 
 function hash(s) {
@@ -112,12 +117,32 @@ export default function LightsMap() {
   const showOnlyRef = useRef(false);
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
+
+  // Keep the bottom dock above the on-screen keyboard while typing an address.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const lift = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+      root.style.setProperty("--kb", `${kb > 80 ? kb : 0}px`);
+    };
+    lift();
+    vv.addEventListener("resize", lift);
+    vv.addEventListener("scroll", lift);
+    return () => {
+      vv.removeEventListener("resize", lift);
+      vv.removeEventListener("scroll", lift);
+      root.style.removeProperty("--kb");
+    };
+  }, []);
   const [query, setQuery] = useState("");
   const [mapError, setMapError] = useState("");
   const [drop, setDrop] = useState(null); // { status, merged, snapped, rough, vibes }
   const [trayOpen, setTrayOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [welcome, setWelcome] = useState(false); // first visit on this device
 
   useEffect(() => {
     modeRef.current = mode;
@@ -127,6 +152,13 @@ export default function LightsMap() {
     const m = loadMuted();
     mutedRef.current = m;
     setMuted(m);
+    setWelcome(shouldWelcome());
+  }, []);
+
+  const closeWelcome = useCallback(() => {
+    rememberWelcomed();
+    setWelcome(false);
+    if (!mutedRef.current) primeAudio(); // this tap lets iOS play the chime later
   }, []);
 
   const say = useCallback((msg, ms = 3200) => {
@@ -347,6 +379,7 @@ export default function LightsMap() {
         lastWriteRef.current = Date.now();
         rememberConfirmed(id);
         applyCells(data.cells);
+        scoutLit(id);
       } catch (err) {
         revert();
         say(err.message);
@@ -367,6 +400,7 @@ export default function LightsMap() {
         lastWriteRef.current = Date.now();
         rememberVoted(id);
         applyCells(data.cells);
+        scoutWow(id);
       } catch (err) {
         revert();
         say(err.message);
@@ -884,6 +918,7 @@ export default function LightsMap() {
       try {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "vibes", vibes: s.vibes });
         lastWriteRef.current = Date.now();
+        scoutTagged(s.pinId, s.vibes.includes(WOW));
         applyCells(data.cells);
       } catch (err) {
         s.sent = null;
@@ -909,6 +944,7 @@ export default function LightsMap() {
       try {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "move", lat: lngLat.lat, lng: lngLat.lng });
         lastWriteRef.current = Date.now();
+        scoutMoved(s.pinId, data.pin.id);
         s.pinId = data.pin.id;
         s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
@@ -976,6 +1012,7 @@ export default function LightsMap() {
           s.merged = data.merged;
           s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
           applyCells(data.cells);
+          scoutAdded(s.pinId);
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
           pushVibes(s);
           return true;
@@ -1007,6 +1044,7 @@ export default function LightsMap() {
     try {
       const data = await api("PATCH", "/api/pins", { token: s.token, action: "undo" });
       lastWriteRef.current = Date.now();
+      scoutUndone(s.pinId);
       applyCells(data.cells);
       say("Pin removed");
     } catch (err) {
@@ -1222,10 +1260,10 @@ export default function LightsMap() {
 
   return (
     <main className={`app mode-${mode}`}>
-      <div ref={mapEl} className="map" />
+      <div ref={mapEl} className="map" inert={welcome || undefined} />
       {mapError && <div className="maperror">{mapError}</div>}
 
-      <div className="top">
+      <div className="top" inert={welcome || undefined}>
         <div className="brand glass">
           <div className="snow" aria-hidden="true">
             {SNOW.map((f, i) => (
@@ -1237,53 +1275,44 @@ export default function LightsMap() {
           </div>
           <div className="brand-title">
             <h1>
-              HoHo<span>Homes</span> ✨
+              HoHo<span>Homes</span>
             </h1>
-            <small>Christmas lights across the USA</small>
+            <p className="count" aria-live="polite">
+              <b>{count === null ? "…" : showOnly ? shows : count}</b>{" "}
+              {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
+            </p>
           </div>
-          <div className="count">
-            <b>{count === null ? "…" : showOnly ? shows : count}</b>
-            {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
+          <div className="bar-icons">
+            <button
+              type="button"
+              className="icon-btn wow-toggle"
+              onClick={toggleShowOnly}
+              aria-pressed={showOnly}
+              aria-label="Showstoppers only"
+              title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
+            >
+              <span aria-hidden="true">🤩</span>
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={toggleMute}
+              aria-pressed={muted}
+              aria-label="Mute sounds"
+              title={muted ? "Sound off" : "Sound on"}
+            >
+              <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>
+            </button>
+            <button type="button" className="icon-btn share" onClick={share} aria-label="Share this map" title="Share">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="M7 8l5-5 5 5" />
+                <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+              </svg>
+            </button>
+            <ScoutBadges />
           </div>
-          <button
-            className="mute wow-toggle"
-            onClick={toggleShowOnly}
-            aria-pressed={showOnly}
-            aria-label={showOnly ? "Show all houses" : "Show Showstoppers only"}
-            title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
-          >
-            🤩
-          </button>
-          <button
-            className="mute"
-            onClick={toggleMute}
-            aria-pressed={muted}
-            aria-label={muted ? "Turn sounds on" : "Mute sounds"}
-            title={muted ? "Sounds off" : "Sounds on"}
-          >
-            {muted ? "🔕" : "🔔"}
-          </button>
         </div>
-        <form className="search" onSubmit={search}>
-          <input
-            className="glass"
-            type="search"
-            inputMode="search"
-            enterKeyHint="search"
-            placeholder="Add by address"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search for an address to add"
-          />
-          <button type="button" className="share glass" onClick={share} aria-label="Share this map">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="M7 8l5-5 5 5" />
-              <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
-            </svg>
-            Share
-          </button>
-        </form>
       </div>
 
       {toast && (
@@ -1292,34 +1321,42 @@ export default function LightsMap() {
         </div>
       )}
 
-      <div className="stack">
+      <div className="stack" inert={welcome || undefined}>
         <div className="credits">
-          {!creditsOpen && (
-            <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
-              Created by <b>Ant.Cat</b>
-            </a>
-          )}
           {creditsOpen && (
-            <div className="credits-text glass">
-              <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
-                OpenFreeMap
-              </a>{" "}
-              <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">
-                © OpenMapTiles
-              </a>{" "}
-              Data from{" "}
-              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
-                OpenStreetMap
+            <div id="credits-panel" className="credits-text glass">
+              <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
+                Created by <b>Ant.Cat</b>
               </a>
+              <span className="credits-map">
+                Map:{" "}
+                <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
+                  OpenFreeMap
+                </a>{" "}
+                <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">
+                  © OpenMapTiles
+                </a>{" "}
+                Data from{" "}
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+                  OpenStreetMap
+                </a>
+              </span>
             </div>
           )}
           <button
-            className="credits-btn glass"
+            type="button"
+            className="credits-btn"
             onClick={() => setCreditsOpen((o) => !o)}
             aria-expanded={creditsOpen}
-            aria-label="Map credits"
+            aria-controls="credits-panel"
+            aria-label="About HoHoHomes"
+            title="About"
           >
-            i
+            <svg width="26" height="26" viewBox="3.5 4.5 26 23" aria-hidden="true">
+              <path d="M6 22C7 12 12 6 17 6c5 0 8.5 3 9.5 8L24 15c-1-3-3-4.5-5-4 2 3 3 7 3.5 11z" fill="#9c4a52" />
+              <rect x="4.5" y="20.5" width="20" height="5.5" rx="2.75" fill="#e6dccb" />
+              <circle cx="25.6" cy="16" r="3" fill="#e6dccb" />
+            </svg>
           </button>
         </div>
 
@@ -1389,26 +1426,66 @@ export default function LightsMap() {
         )}
 
         {showDock && (
-          <div className="dock">
-            <button className="round glass" onClick={nearMe} aria-label="Show lights near me">
-              ◎
-            </button>
-            <button className="primary" onClick={iSeeLights} disabled={mode === "locating"}>
-              {mode === "locating" ? "Finding you…" : "🎄 I see lights here"}
-            </button>
-            <button
-              className="round glass"
-              onClick={() => {
-                primeAudio();
-                startPicking();
-              }}
-              aria-label="Pick a house on the map"
-            >
-              📍
-            </button>
+          <div className="dock glass">
+            <div className="dock-lights" aria-hidden="true">
+              {DOCK_LIGHTS.map((d, i) => (
+                <i key={i} style={{ "--d": d }} />
+              ))}
+            </div>
+            <form className="search" role="search" onSubmit={search}>
+              <svg className="search-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="M16 16l4.5 4.5" />
+              </svg>
+              <input
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="street-address"
+                placeholder="Add by address"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Add a house by address"
+              />
+              <button
+                type="button"
+                className="pin-btn"
+                onClick={() => {
+                  primeAudio();
+                  startPicking();
+                }}
+                aria-label="Pick a house on the map"
+                title="Pick on the map"
+              >
+                <span aria-hidden="true">📍</span>
+              </button>
+            </form>
+            <div className="dock-row">
+              <button type="button" className="locate" onClick={nearMe} aria-label="Show lights near me" title="Near me">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="6.5" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+                </svg>
+              </button>
+              <button type="button" className="primary" onClick={iSeeLights} disabled={mode === "locating"}>
+                {mode === "locating" ? (
+                  "Finding you…"
+                ) : (
+                  <>
+                    <span className="tree" aria-hidden="true">
+                      🎄
+                    </span>
+                    I see lights here
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {welcome && <Welcome onClose={closeWelcome} />}
     </main>
   );
 }
