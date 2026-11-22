@@ -17,6 +17,7 @@ footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 �
 - Abuse guard: reports within 20 m merge into one house, 20 adds per hour per visitor (in memory), US-only bounds (lower 48, Alaska, Hawaii, Puerto Rico), 5,000 houses per cell
 - `GET /api/pins` is cached at the edge for 30 s
 - The map opens on the visitor's city: precise location only if they've already allowed it, otherwise Vercel's city-level IP location (`GET /api/where`, never stored). Anyone else sees the whole country.
+- Sharing: the Share button sends the map, or the area in view as `/?near=30.31,-81.66&z=12`. The spot is snapped to a 0.01° grid (about 1 km), so a link never points at a house. Its preview (`/api/og`, plus per-link Open Graph tags) gives only area totals within a radius that matches the zoom, and no count at all below 3 houses. Preview images use no emoji, so they never depend on an emoji CDN.
 
 Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 

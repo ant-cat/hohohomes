@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
-import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48 } from "../lib/region";
+import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
@@ -619,13 +619,18 @@ export default function LightsMap() {
       }
       if (cancelled) return;
       libRef.current = maplibregl;
+      // A shared link (?near=…) opens on that area instead of the visitor's location.
+      const params = new URLSearchParams(window.location.search);
+      const shared = parseNear(params.get("near"));
+      const sharedZoom = parseZoom(params.get("z")) + 0.3;
       try {
         map = new maplibregl.Map({
           container: mapEl.current,
           style: STYLE,
-          // Fit the lower 48 to whatever screen this is.
-          bounds: LOWER_48,
-          fitBoundsOptions: { padding: { top: 150, bottom: 140, left: 16, right: 16 } },
+          // Fit the lower 48 to whatever screen this is, unless the link points at an area.
+          ...(shared
+            ? { center: [shared.lng, shared.lat], zoom: sharedZoom }
+            : { bounds: LOWER_48, fitBoundsOptions: { padding: { top: 150, bottom: 140, left: 16, right: 16 } } }),
           minZoom: 1.5,
           maxZoom: 19,
           // Credits live in our own (i) toggle above the dock, so nothing overlaps.
@@ -647,7 +652,7 @@ export default function LightsMap() {
       map.once("dragstart", () => (touched = true));
       map.on("zoomstart", (e) => e.originalEvent && (touched = true));
       const openOn = (lat, lng, zoom) => {
-        if (cancelled || touched || sessionRef.current || modeRef.current !== "idle") return;
+        if (cancelled || shared || touched || sessionRef.current || modeRef.current !== "idle") return;
         if (!inUSA(lat, lng)) return;
         map.easeTo({ center: [lng, lat], zoom, duration: 1200, essential: true });
       };
@@ -1155,6 +1160,34 @@ export default function LightsMap() {
     if (next) say("Showing Showstoppers only 🤩");
   }, [setPins, say]);
 
+  // Share the map, or the ~1 km area in view. Links never point at a single house.
+  const share = useCallback(async () => {
+    const map = mapRef.current;
+    let url = `${window.location.origin}/`;
+    let text = "🎄 Find Christmas lights near you, and add any you spot.";
+    if (map && map.getZoom() >= 10) {
+      const c = map.getCenter();
+      if (inUSA(c.lat, c.lng)) {
+        // Keep the sender's zoom (10–15) so the link shows what they were looking at.
+        const z = Math.max(10, Math.min(15, Math.floor(map.getZoom())));
+        url += `?near=${snapNear(c.lat, c.lng)}${z !== 14 ? `&z=${z}` : ""}`;
+        text = "🎄 Christmas lights near here. Add any you spot!";
+      }
+    }
+    haptic(10);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "HoHoHomes", text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      say("Link copied. Paste it anywhere 🎄");
+    } catch (err) {
+      if (err && err.name === "AbortError") return; // closed the share sheet
+      say("Couldn't share right now.");
+    }
+  }, [say]);
+
   const toggleMute = useCallback(() => {
     const next = !mutedRef.current;
     mutedRef.current = next;
@@ -1242,6 +1275,14 @@ export default function LightsMap() {
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search for an address to add"
           />
+          <button type="button" className="share glass" onClick={share} aria-label="Share this map">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="M7 8l5-5 5 5" />
+              <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+            </svg>
+            Share
+          </button>
         </form>
       </div>
 
