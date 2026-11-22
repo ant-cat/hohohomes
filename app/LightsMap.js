@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
+import ScoutBadges from "./ScoutBadges";
+import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
 import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
@@ -347,6 +349,7 @@ export default function LightsMap() {
         lastWriteRef.current = Date.now();
         rememberConfirmed(id);
         applyCells(data.cells);
+        scoutLit(id);
       } catch (err) {
         revert();
         say(err.message);
@@ -367,6 +370,7 @@ export default function LightsMap() {
         lastWriteRef.current = Date.now();
         rememberVoted(id);
         applyCells(data.cells);
+        scoutWow(id);
       } catch (err) {
         revert();
         say(err.message);
@@ -884,6 +888,7 @@ export default function LightsMap() {
       try {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "vibes", vibes: s.vibes });
         lastWriteRef.current = Date.now();
+        scoutTagged(s.pinId, s.vibes.includes(WOW));
         applyCells(data.cells);
       } catch (err) {
         s.sent = null;
@@ -909,6 +914,7 @@ export default function LightsMap() {
       try {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "move", lat: lngLat.lat, lng: lngLat.lng });
         lastWriteRef.current = Date.now();
+        scoutMoved(s.pinId, data.pin.id);
         s.pinId = data.pin.id;
         s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
@@ -976,6 +982,7 @@ export default function LightsMap() {
           s.merged = data.merged;
           s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
           applyCells(data.cells);
+          scoutAdded(s.pinId);
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
           pushVibes(s);
           return true;
@@ -1007,6 +1014,7 @@ export default function LightsMap() {
     try {
       const data = await api("PATCH", "/api/pins", { token: s.token, action: "undo" });
       lastWriteRef.current = Date.now();
+      scoutUndone(s.pinId);
       applyCells(data.cells);
       say("Pin removed");
     } catch (err) {
@@ -1283,6 +1291,7 @@ export default function LightsMap() {
             </svg>
             Share
           </button>
+          <ScoutBadges />
         </form>
       </div>
 
