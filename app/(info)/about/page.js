@@ -35,12 +35,16 @@ const FAQ = [
     "A house that three or more people have voted \"Worth the Drive\". Showstoppers get a bigger starburst on the map. Nothing ever ranks a house down.",
   ],
   [
+    "Can I add a farm, park or business light show?",
+    "Yes. After you add it, pick \"Public display\" and give it a name, like Sunny Acres Farm. Public displays get a gold star on the map and their own ⭐ filter. Homes never get a name. A display's name stays hidden until a second person confirms it, by tapping \"I see this display too\" or adding it themselves, so nobody can put a name on a neighbor's house.",
+  ],
+  [
     "Where does HoHoHomes work?",
     "Across the United States: the lower 48, Alaska, Hawaii and Puerto Rico. It started in Jacksonville, Florida in 2026.",
   ],
   [
     "What does HoHoHomes know about me?",
-    "Nothing that identifies you. There are no accounts and no IP addresses are stored. A house is just a spot on the map with tags and timestamps. Shared links and previews point at an area about 1 km across and never show a count under 3 houses.",
+    "Nothing that identifies you. There are no accounts and no IP addresses are stored. A house is just a spot on the map with tags and timestamps. A public display also keeps a scrambled, one-way code for each person who named or confirmed it, so it can tell the second person from the first; the code can't be turned back into an address. Shared links and previews point at an area about 1 km across and never show a count under 3 houses.",
   ],
   [
     "When does the map reset?",
@@ -80,6 +84,7 @@ export default function About() {
         <li>The map opens on the whole country. Pinch in, or tap Lights near me. Zoomed out, houses gather into glowing neighborhood Hot Zones.</li>
         <li>Zoom in and every house is a twinkling light. Tap one for its vibe tags and when it was last seen lit.</li>
         <li>Tap 🤩 for Showstoppers only, the displays people say are worth the drive.</li>
+        <li>Tap ⭐ for public displays only: farms, parks, businesses and churches putting on a show.</li>
         <li>Share the map, or the area you're looking at, with the Share button.</li>
       </ul>
 

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
+import { isDisplay, checkName, NAME_MAX } from "../lib/displays";
 import ScoutBadges from "./ScoutBadges";
 import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
 import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
-import { popupNode, isFresh, rememberConfirmed, rememberVoted } from "./popup";
+import { popupNode, isFresh, rememberConfirmed, rememberVoted, rememberMyDisplay, forgetMyDisplay } from "./popup";
 import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
@@ -21,6 +22,16 @@ const CELL_STALE_MS = 2 * 60 * 1000;
 const CLUSTER_MAX_ZOOM = 13;
 const ORB_ZOOM = 14;
 const MAX_ORBS = 300;
+// Confirmed public displays are gold stars, shown from the moment their area loads.
+const MAX_STARS = 150;
+// From here in, a star carries its name.
+const STAR_NAME_ZOOM = 13;
+// Map filters: everything, Showstoppers only, or public displays only.
+const FILTERS = {
+  all: { keepHouse: () => true, keepStar: () => true },
+  show: { keepHouse: isShowstopper, keepStar: isShowstopper },
+  disp: { keepHouse: () => false, keepStar: () => true },
+};
 const MAX_ZONE_LABELS = 24;
 const HUES = ["warm", "warm", "warm", "red", "gold", "green", "blue", "warm", "pink", "gold"];
 const SPARK_COLORS = ["#fff1c9", "#ff5a5f", "#ffc94d", "#5fe39a", "#7cc4ff", "#ff8fc7"];
@@ -59,6 +70,30 @@ function JingleBell({ muted }) {
   );
 }
 
+const DISPLAY_SAID = {
+  pending: "⭐ Saved! It shows on the map once someone else confirms it.",
+  same: "⭐ Saved! It still needs someone else to confirm it.",
+  confirmed: "⭐ You confirmed it. It's on the map now!",
+  seen: "⭐ Added your vote for this display.",
+  already: "⭐ You've already confirmed this one.",
+};
+
+// The Displays filter: a little gold star that glints.
+function StarIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 2.8l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3.1-5.4 3.1 1.2-6-4.5-4.2 6.1-.7z"
+        fill="#ffc94d"
+        stroke="#ffe7a8"
+        strokeWidth=".8"
+        strokeLinejoin="round"
+      />
+      <path className="glint" d="M18.6 3.2v3M17.1 4.7h3" stroke="#fff6dc" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // A string of fairy lights along the top of the bottom dock, each with its own twinkle.
 const DOCK_LIGHTS = Array.from({ length: 11 }, (_, i) => `${-((i * 0.73) % 2.6).toFixed(2)}s`);
 
@@ -69,8 +104,10 @@ function hash(s) {
   return h >>> 0;
 }
 
-function toGeoJSON(pins) {
+// Houses for the glows and sparks. Public displays draw as their own stars instead.
+function toGeoJSON(pins, filter = "all") {
   const now = Date.now();
+  pins = pins.filter((p) => !isDisplay(p) && FILTERS[filter].keepHouse(p));
   return {
     type: "FeatureCollection",
     features: pins.map((p) => ({
@@ -91,6 +128,22 @@ function makeOrb(p) {
   el.style.setProperty("--d", `-${((h >>> 4) % 3000) / 1000}s`);
   el.style.setProperty("--t", `${1.8 + ((h >>> 9) % 16) / 10}s`);
   el.appendChild(document.createElement("i"));
+  return el;
+}
+
+// A public display: a gold star with its name underneath.
+function makeStar(p) {
+  const h = hash(p.id);
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "orb star";
+  el.setAttribute("aria-label", `Public display: ${p.d.n}`);
+  el.style.setProperty("--d", `-${((h >>> 4) % 4000) / 1000}s`);
+  const star = document.createElement("i");
+  const name = document.createElement("span");
+  name.className = "star-name";
+  name.textContent = p.d.n;
+  el.append(star, name);
   return el;
 }
 
@@ -132,6 +185,7 @@ export default function LightsMap() {
   const mutedRef = useRef(false);
   const lastWriteRef = useRef(0);
   const vibeTimerRef = useRef(null);
+  const nameRef = useRef(""); // the display name being typed in the tray
   const openPopupRef = useRef(() => {});
   const cellsRef = useRef(new Map()); // cell -> { pins, at }: the houses downloaded so far
   const summaryRef = useRef(null); // cell -> { n, s, lat, lng }: houses per cell, nationwide
@@ -139,8 +193,9 @@ export default function LightsMap() {
 
   const [count, setCount] = useState(null);
   const [shows, setShows] = useState(0); // how many Showstoppers
-  const [showOnly, setShowOnly] = useState(false); // "Showstoppers only" filter
-  const showOnlyRef = useRef(false);
+  const [displays, setDisplays] = useState(0); // how many public displays
+  const [filter, setFilter] = useState("all"); // all | show (Showstoppers only) | disp (public displays only)
+  const filterRef = useRef("all");
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
 
@@ -197,38 +252,45 @@ export default function LightsMap() {
     if (msg) setTimeout(() => setToast((t) => (t === msg ? "" : t)), ms);
   }, []);
 
-  // Twinkling house lights, as DOM markers, only for the houses in view.
+  // Twinkling house lights and public-display stars, as DOM markers, only for what's in view.
   const syncOrbs = useCallback(() => {
     const map = mapRef.current;
     const lib = libRef.current;
     if (!map || !lib) return;
     const orbs = orbsRef.current;
     const want = new Map();
-    if (map.getZoom() >= ORB_ZOOM) {
+    const zoom = map.getZoom();
+    const f = FILTERS[filterRef.current];
+    if (zoom >= LOAD_ZOOM) {
       const b = map.getBounds();
       const padLng = (b.getEast() - b.getWest()) * 0.15;
       const padLat = (b.getNorth() - b.getSouth()) * 0.15;
-      let list = pinsRef.current.filter(
-        (p) =>
-          p.id !== hiddenIdRef.current &&
-          (!showOnlyRef.current || isShowstopper(p)) &&
-          p.lng > b.getWest() - padLng &&
-          p.lng < b.getEast() + padLng &&
-          p.lat > b.getSouth() - padLat &&
-          p.lat < b.getNorth() + padLat
-      );
-      if (list.length > MAX_ORBS) {
-        const c = map.getCenter();
-        list = list
-          .map((p) => [(p.lng - c.lng) ** 2 + (p.lat - c.lat) ** 2, p])
-          .sort((x, y) => x[0] - y[0])
-          .slice(0, MAX_ORBS)
-          .map((x) => x[1]);
+      const inView = (p) =>
+        p.id !== hiddenIdRef.current &&
+        p.lng > b.getWest() - padLng &&
+        p.lng < b.getEast() + padLng &&
+        p.lat > b.getSouth() - padLat &&
+        p.lat < b.getNorth() + padLat;
+      const c = map.getCenter();
+      const nearest = (list, max) =>
+        list.length <= max
+          ? list
+          : list
+              .map((p) => [(p.lng - c.lng) ** 2 + (p.lat - c.lat) ** 2, p])
+              .sort((x, y) => x[0] - y[0])
+              .slice(0, max)
+              .map((x) => x[1]);
+      const stars = pinsRef.current.filter((p) => isDisplay(p) && f.keepStar(p) && inView(p));
+      for (const p of nearest(stars, MAX_STARS)) want.set(p.id, p);
+      if (zoom >= ORB_ZOOM) {
+        const houses = pinsRef.current.filter((p) => !isDisplay(p) && f.keepHouse(p) && inView(p));
+        for (const p of nearest(houses, MAX_ORBS)) want.set(p.id, p);
       }
-      for (const p of list) want.set(p.id, p);
     }
+    map.getContainer().classList.toggle("star-names", zoom >= STAR_NAME_ZOOM);
     for (const [id, o] of orbs) {
-      if (!want.has(id)) {
+      const p = want.get(id);
+      if (!p || o.star !== isDisplay(p) || (o.star && o.name !== p.d.n)) {
         o.marker.remove();
         orbs.delete(id);
       }
@@ -237,13 +299,16 @@ export default function LightsMap() {
     for (const [id, p] of want) {
       let o = orbs.get(id);
       if (!o) {
-        const el = makeOrb(p);
+        const star = isDisplay(p);
+        const el = star ? makeStar(p) : makeOrb(p);
         el.addEventListener("click", (e) => {
           e.stopPropagation();
           if (modeRef.current === "idle") openPopupRef.current(id);
         });
-        const marker = new lib.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map);
-        o = { marker, el, lng: p.lng, lat: p.lat };
+        const marker = new lib.Marker({ element: el, anchor: star ? "top" : "center", offset: star ? [0, -17] : [0, 0] })
+          .setLngLat([p.lng, p.lat])
+          .addTo(map);
+        o = { marker, el, lng: p.lng, lat: p.lat, star, name: star ? p.d.n : "" };
         orbs.set(id, o);
       } else if (o.lng !== p.lng || o.lat !== p.lat) {
         o.marker.setLngLat([p.lng, p.lat]);
@@ -262,27 +327,32 @@ export default function LightsMap() {
       // National totals: downloaded cells count exactly, the rest come from the summary.
       let total = pins.length;
       let stars = pins.filter(isShowstopper).length;
+      let named = pins.filter(isDisplay).length;
       const summary = summaryRef.current || {};
       for (const [cell, v] of Object.entries(summary)) {
         if (cellsRef.current.has(cell)) continue;
         total += v.n;
         stars += v.s;
+        named += v.d || 0;
       }
       if (summaryRef.current || pins.length) setCount(total);
       setShows(stars);
+      setDisplays(named);
+      const filter = filterRef.current;
       const map = mapRef.current;
       const src = map && map.getSource("pins");
-      if (src) src.setData(toGeoJSON(showOnlyRef.current ? pins.filter(isShowstopper) : pins));
+      if (src) src.setData(toGeoJSON(pins, filter));
       const sum = map && map.getSource("summary");
       if (sum) {
+        const n = (v) => (filter === "show" ? v.s : filter === "disp" ? v.d || 0 : v.n);
         sum.setData({
           type: "FeatureCollection",
           features: Object.entries(summary)
-            .filter(([, v]) => v.n && (!showOnlyRef.current || v.s))
+            .filter(([, v]) => n(v) > 0)
             .map(([cell, v]) => ({
               type: "Feature",
               geometry: { type: "Point", coordinates: [v.lng, v.lat] },
-              properties: { cell, n: showOnlyRef.current ? v.s : v.n, s: v.s },
+              properties: { cell, n: n(v), s: v.s, d: v.d || 0 },
             })),
         });
       }
@@ -311,7 +381,13 @@ export default function LightsMap() {
           lat += p.lat;
           lng += p.lng;
         }
-        summary[cell] = { n: pins.length, s: pins.filter(isShowstopper).length, lat: lat / pins.length, lng: lng / pins.length };
+        summary[cell] = {
+          n: pins.length,
+          s: pins.filter(isShowstopper).length,
+          d: pins.filter(isDisplay).length,
+          lat: lat / pins.length,
+          lng: lng / pins.length,
+        };
       }
       setPins(flatPins());
     },
@@ -441,6 +517,28 @@ export default function LightsMap() {
     [patchPin, applyCells, say]
   );
 
+  const seeDisplay = useCallback(
+    async (id) => {
+      haptic(25);
+      if (!mutedRef.current) chime(false);
+      try {
+        const data = await api("POST", `/api/pins/${id}/display?cell=${pinCell(id)}`);
+        lastWriteRef.current = Date.now();
+        applyCells(data.cells);
+        if (popupRef.current) popupRef.current.remove();
+        if (data.display === "confirmed") {
+          say(`⭐ Confirmed! ${data.pin.d.n} is on the map now`, 4500);
+          const map = mapRef.current;
+          if (map) lightUp(libRef.current, map, { lng: data.pin.lng, lat: data.pin.lat });
+        } else say("Thanks! ⭐");
+      } catch (err) {
+        say(err.message);
+        throw err;
+      }
+    },
+    [applyCells, say]
+  );
+
   // Owner moderation. Visit /?admin=<ADMIN_KEY> once to turn it on in this browser, /?admin=off to turn it off.
   const adminKeyRef = useRef("");
 
@@ -474,7 +572,14 @@ export default function LightsMap() {
       if (popupRef.current) popupRef.current.remove();
       popupRef.current = new lib.Popup({ offset: 16, maxWidth: "280px" })
         .setLngLat([pin.lng, pin.lat])
-        .setDOMContent(popupNode(pin, { onLit: confirmLit, onWow: voteWow, onRemove: adminKeyRef.current ? removeHouse : null }))
+        .setDOMContent(
+          popupNode(pin, {
+            onLit: confirmLit,
+            onWow: voteWow,
+            onSeeDisplay: seeDisplay,
+            onRemove: adminKeyRef.current ? removeHouse : null,
+          })
+        )
         .addTo(map);
       // Keep the whole card clear of the header: measure both and pan just enough.
       const y = map.project([pin.lng, pin.lat]).y;
@@ -482,9 +587,13 @@ export default function LightsMap() {
       const top = document.querySelector(".top");
       const headerBottom = top ? top.getBoundingClientRect().bottom : 0;
       const minY = headerBottom + card + 24;
-      if (y < minY) map.panBy([0, y - minY], { duration: 350 });
+      // And clear of the screen's sides, for a light near the edge.
+      const rect = popupRef.current.getElement().getBoundingClientRect();
+      const w = map.getContainer().clientWidth;
+      const dx = rect.left < 10 ? rect.left - 10 : rect.right > w - 10 ? rect.right - (w - 10) : 0;
+      if (y < minY || dx) map.panBy([dx, Math.min(0, y - minY)], { duration: 350 });
     },
-    [confirmLit, voteWow, removeHouse]
+    [confirmLit, voteWow, seeDisplay, removeHouse]
   );
   openPopupRef.current = openPopup;
 
@@ -588,7 +697,7 @@ export default function LightsMap() {
         .sort((a, b) => b.properties.n - a.properties.n);
       for (const f of feats) {
         const id = f.properties.cluster_id;
-        const key = id !== undefined ? `rc:${id}:${f.properties.n}` : `r:${f.properties.cell}:${f.properties.n}:${f.properties.s}`;
+        const key = id !== undefined ? `rc:${id}:${f.properties.n}` : `r:${f.properties.cell}:${f.properties.n}:${f.properties.s}:${f.properties.d}`;
         if (!want.has(key) && want.size < MAX_ZONE_LABELS) want.set(key, f);
       }
     } else if (map.getZoom() < ORB_ZOOM && map.getLayer("zone-halo")) {
@@ -632,9 +741,13 @@ export default function LightsMap() {
       const name = document.createElement("b");
       const meta = document.createElement("span");
       const stars = (national ? f.properties.s : f.properties.shows) || 0;
-      meta.textContent = showOnlyRef.current
-        ? `${n} ${n === 1 ? "showstopper" : "showstoppers"} 🤩`
-        : `${n} houses${stars ? ` • ${stars} 🤩` : ""}`;
+      const named = national ? f.properties.d || 0 : 0;
+      meta.textContent =
+        filterRef.current === "show"
+          ? `${n} ${n === 1 ? "showstopper" : "showstoppers"} 🤩`
+          : filterRef.current === "disp"
+            ? `${n} public ${n === 1 ? "display" : "displays"} ⭐`
+            : `${n} houses${stars ? ` • ${stars} 🤩` : ""}${named ? ` • ${named} ⭐` : ""}`;
       el.append(name, meta);
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -756,7 +869,7 @@ export default function LightsMap() {
           cluster: true,
           clusterRadius: 45,
           clusterMaxZoom: 6,
-          clusterProperties: { n: ["+", ["get", "n"]], s: ["+", ["get", "s"]] },
+          clusterProperties: { n: ["+", ["get", "n"]], s: ["+", ["get", "s"]], d: ["+", ["get", "d"]] },
         });
         const regionSize = ["interpolate", ["linear"], ["get", "n"], 1, 12, 10, 20, 100, 34, 1000, 54];
         map.addLayer({
@@ -786,7 +899,7 @@ export default function LightsMap() {
 
         map.addSource("pins", {
           type: "geojson",
-          data: toGeoJSON(pinsRef.current),
+          data: toGeoJSON(pinsRef.current, filterRef.current),
           cluster: true,
           clusterMaxZoom: CLUSTER_MAX_ZOOM,
           clusterRadius: 44,
@@ -956,6 +1069,10 @@ export default function LightsMap() {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "move", lat: lngLat.lat, lng: lngLat.lng });
         lastWriteRef.current = Date.now();
         scoutMoved(s.pinId, data.pin.id);
+        if (s.sentName && data.pin.id !== s.pinId) {
+          forgetMyDisplay(s.pinId);
+          if (data.display === "pending") rememberMyDisplay(data.pin.id, s.sentName);
+        }
         s.pinId = data.pin.id;
         s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
@@ -999,10 +1116,11 @@ export default function LightsMap() {
           spot = s;
         }
       }
-      const s = { gps: lngLat, lngLat: spot, vibes: [], token: null, pinId: null, sent: "[]", merged: false };
+      const s = { gps: lngLat, lngLat: spot, vibes: [], token: null, pinId: null, sent: "[]", merged: false, kind: "home", sentName: "" };
       sessionRef.current = s;
+      nameRef.current = "";
       setMode("idle");
-      setDrop({ status: "saving", merged: false, snapped, rough, vibes: [] });
+      setDrop({ status: "saving", merged: false, snapped, rough, vibes: [], kind: "home", name: "", dstatus: "" });
       setTrayOpen(true);
 
       haptic(30);
@@ -1052,6 +1170,7 @@ export default function LightsMap() {
     haptic(15);
     const ok = await s.promise;
     if (!ok) return;
+    if (s.sentName) forgetMyDisplay(s.pinId);
     try {
       const data = await api("PATCH", "/api/pins", { token: s.token, action: "undo" });
       lastWriteRef.current = Date.now();
@@ -1075,6 +1194,77 @@ export default function LightsMap() {
     },
     [pushVibes]
   );
+
+  // "Home or public display?" A home stays anonymous. A display gets a name, which shows on the
+  // map once a second person confirms it.
+
+
+  const sendDisplay = useCallback(
+    async (s, name) => {
+      if (name === s.sentName) return true;
+      const ok = await s.promise;
+      if (!ok || !s.token) return false;
+      if (sessionRef.current === s) setDrop((d) => d && { ...d, dstatus: "saving" });
+      try {
+        const data = await api("PATCH", "/api/pins", { token: s.token, action: "display", name });
+        lastWriteRef.current = Date.now();
+        if (data.pin && data.pin.id !== s.pinId) {
+          // Joined a display that was already there.
+          scoutMoved(s.pinId, data.pin.id);
+          forgetMyDisplay(s.pinId);
+          s.pinId = data.pin.id;
+          s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
+        }
+        s.merged = data.merged;
+        s.sentName = name;
+        if (data.display === "pending") rememberMyDisplay(s.pinId, name);
+        else forgetMyDisplay(s.pinId);
+        applyCells(data.cells);
+        if (data.display === "confirmed") {
+          haptic([20, 40, 20]);
+          if (!mutedRef.current) chime(true);
+          lightUp(libRef.current, mapRef.current, s.lngLat);
+        }
+        if (sessionRef.current === s) setDrop((d) => d && { ...d, dstatus: name ? data.display : "", merged: data.merged });
+        return true;
+      } catch (err) {
+        if (sessionRef.current === s) setDrop((d) => d && { ...d, dstatus: "" });
+        say(err.message, 4000);
+        return false;
+      }
+    },
+    [applyCells, say]
+  );
+
+  const setKind = useCallback(
+    (kind) => {
+      const s = sessionRef.current;
+      if (!s || s.kind === kind) return;
+      s.kind = kind;
+      haptic(10);
+      setDrop((d) => d && { ...d, kind, dstatus: kind === "home" ? "" : d.dstatus });
+      if (kind === "home" && s.sentName) sendDisplay(s, "");
+    },
+    [sendDisplay]
+  );
+
+  const saveDisplay = useCallback(async () => {
+    const s = sessionRef.current;
+    if (!s || s.kind !== "display") return true;
+    const checked = checkName(nameRef.current);
+    if (checked.error || !checked.name) {
+      say(checked.error || "Give it a name, like Sunny Acres Farm.", 4000);
+      return false;
+    }
+    document.activeElement && document.activeElement.blur();
+    return sendDisplay(s, checked.name);
+  }, [sendDisplay, say]);
+
+  const trayDone = useCallback(async () => {
+    const s = sessionRef.current;
+    if (s && s.kind === "display" && nameRef.current.trim() && !(await saveDisplay())) return;
+    setTrayOpen(false);
+  }, [saveDisplay]);
 
   const clearAdjust = useCallback(() => {
     if (adjustRef.current) adjustRef.current.remove();
@@ -1114,6 +1304,8 @@ export default function LightsMap() {
   // The toast lingers while you use it, then tidies itself away.
   useEffect(() => {
     if (!drop || mode === "adjusting") return;
+    // Naming a display takes typing; don't pull the tray away mid-word.
+    if (trayOpen && drop.kind === "display" && !drop.dstatus) return;
     const t = setTimeout(endSession, trayOpen ? 20000 : 6000);
     return () => clearTimeout(t);
   }, [drop, trayOpen, mode, endSession]);
@@ -1193,23 +1385,31 @@ export default function LightsMap() {
     [query, dropAt, say]
   );
 
-  const toggleShowOnly = useCallback(() => {
-    const next = !showOnlyRef.current;
-    const anyShowstopper =
-      pinsRef.current.some(isShowstopper) || Object.values(summaryRef.current || {}).some((v) => v.s > 0);
-    if (next && !anyShowstopper) {
-      say("No Showstoppers yet. Know one worth the drive? Tap 🤩 on its card.", 4500);
-      return;
-    }
-    showOnlyRef.current = next;
-    setShowOnly(next);
-    haptic(10);
-    // Labels carry the filter in their text, so rebuild them.
-    for (const z of zonesRef.current.values()) z.marker.remove();
-    zonesRef.current.clear();
-    setPins(pinsRef.current);
-    if (next) say("Showing Showstoppers only 🤩");
-  }, [setPins, say]);
+  // The 🤩 and ⭐ buttons: tap one to filter, tap it again to see everything.
+  const toggleFilter = useCallback(
+    (which) => {
+      const next = filterRef.current === which ? "all" : which;
+      const summary = Object.values(summaryRef.current || {});
+      if (next === "show" && !pinsRef.current.some(isShowstopper) && !summary.some((v) => v.s > 0)) {
+        say("No Showstoppers yet. Know one worth the drive? Tap 🤩 on its card.", 4500);
+        return;
+      }
+      if (next === "disp" && !pinsRef.current.some(isDisplay) && !summary.some((v) => v.d > 0)) {
+        say("No public displays yet. Spot a farm or park show? Add it and pick ⭐ Public display.", 5000);
+        return;
+      }
+      filterRef.current = next;
+      setFilter(next);
+      haptic(10);
+      // Labels carry the filter in their text, so rebuild them.
+      for (const z of zonesRef.current.values()) z.marker.remove();
+      zonesRef.current.clear();
+      setPins(pinsRef.current);
+      if (next === "show") say("Showing Showstoppers only 🤩");
+      if (next === "disp") say("Showing public displays only ⭐");
+    },
+    [setPins, say]
+  );
 
   // Share the map, or the ~1 km area in view. Links never point at a single house.
   const share = useCallback(async () => {
@@ -1261,6 +1461,9 @@ export default function LightsMap() {
   let dropMsg = "";
   if (drop) {
     if (drop.status === "saving") dropMsg = "Lighting it up…";
+    else if (drop.dstatus === "pending" || drop.dstatus === "same") dropMsg = "⭐ Display added";
+    else if (drop.dstatus === "confirmed") dropMsg = "⭐ Display confirmed!";
+    else if (drop.dstatus === "seen" || drop.dstatus === "already") dropMsg = "⭐ Added your vote";
     else if (drop.merged) dropMsg = "Added your vote 🎄";
     else if (drop.adjusted) dropMsg = "Moved ✨";
     else if (drop.snapped) dropMsg = "Snapped to the house ✨";
@@ -1291,20 +1494,40 @@ export default function LightsMap() {
               HoHo<span>Homes</span>
             </h1>
             <p className="count" aria-live="polite">
-              <b>{count === null ? "…" : showOnly ? shows : count}</b>{" "}
-              {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
+              <b>{count === null ? "…" : filter === "show" ? shows : filter === "disp" ? displays : count}</b>{" "}
+              {filter === "show"
+                ? shows === 1
+                  ? "showstopper"
+                  : "showstoppers"
+                : filter === "disp"
+                  ? displays === 1
+                    ? "public display"
+                    : "public displays"
+                  : count === 1
+                    ? "house lit"
+                    : "houses lit"}
             </p>
           </div>
           <div className="bar-icons">
             <button
               type="button"
               className="icon-btn wow-toggle"
-              onClick={toggleShowOnly}
-              aria-pressed={showOnly}
+              onClick={() => toggleFilter("show")}
+              aria-pressed={filter === "show"}
               aria-label="Showstoppers only"
-              title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
+              title={filter === "show" ? "Showing Showstoppers only" : "Showstoppers only"}
             >
               <span aria-hidden="true">🤩</span>
+            </button>
+            <button
+              type="button"
+              className="icon-btn wow-toggle disp-toggle"
+              onClick={() => toggleFilter("disp")}
+              aria-pressed={filter === "disp"}
+              aria-label="Public displays only"
+              title={filter === "disp" ? "Showing public displays only" : "Public displays: farms, parks, businesses"}
+            >
+              <StarIcon />
             </button>
             <button
               type="button"
@@ -1419,11 +1642,71 @@ export default function LightsMap() {
         )}
 
         {showTray && (
-          <div className="tray glass" role="group" aria-label="Tag the vibe">
+          <div className="tray glass" role="group" aria-label="Tell us about it">
             <div className="tray-head">
-              <span>What&apos;s the vibe? Tap any</span>
-              <button onClick={() => setTrayOpen(false)}>Done</button>
+              <span>What did you spot?</span>
+              <button onClick={trayDone}>Done</button>
             </div>
+            <div className="kind" role="radiogroup" aria-label="Home or public display?">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={drop.kind !== "display"}
+                className="kind-opt"
+                onClick={() => setKind("home")}
+              >
+                <span className="e" aria-hidden="true">
+                  🏠
+                </span>
+                Home
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={drop.kind === "display"}
+                className="kind-opt kind-display"
+                onClick={() => setKind("display")}
+              >
+                <span className="e kind-star" aria-hidden="true">
+                  ⭐
+                </span>
+                Public display
+              </button>
+            </div>
+            {drop.kind === "display" && (
+              <form
+                className="name-row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveDisplay();
+                }}
+              >
+                <input
+                  type="text"
+                  value={drop.name}
+                  onChange={(e) => {
+                    nameRef.current = e.target.value;
+                    const name = e.target.value;
+                    setDrop((d) => d && { ...d, name, dstatus: "" });
+                  }}
+                  maxLength={NAME_MAX}
+                  placeholder="Its name, like Sunny Acres Farm"
+                  enterKeyHint="done"
+                  autoComplete="off"
+                  autoCapitalize="words"
+                  aria-label="Name of the public display"
+                />
+                <button type="submit" disabled={Boolean(drop.dstatus) || !drop.name.trim()}>
+                  {drop.dstatus === "saving" ? "…" : drop.dstatus ? "Saved" : "Save"}
+                </button>
+              </form>
+            )}
+            {drop.kind === "display" && (
+              <p className="name-note" aria-live="polite">
+                {DISPLAY_SAID[drop.dstatus] || "Farms, parks, businesses, churches, drive-throughs. Homes stay unnamed."}
+              </p>
+            )}
+            <p className="vibe-label">The vibe? Tap any</p>
             <div className="chips">
               <button
                 className="chip chip-wow"

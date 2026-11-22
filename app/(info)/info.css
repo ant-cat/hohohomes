@@ -29,3 +29,6 @@
 .info-by { display: block; margin-top: 8px; font-size: 12px; }
 .info-crumbs { margin: 0; font-size: 14px; color: var(--muted) !important; }
 .info-crumbs a { color: var(--muted) !important; }
+.info-displays { list-style: none; padding: 0 !important; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 16px; }
+.info-displays a { font-weight: 700; }
+.info-displays small { color: var(--muted); }

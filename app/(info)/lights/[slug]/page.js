@@ -50,6 +50,7 @@ export default async function City({ params }) {
   if (!m) notFound();
   const counts = await metroCounts();
   const c = counts.metros[m.slug];
+  const shows = (counts.displays || {})[m.slug] || [];
   const where = `in and around ${m.city}`;
   const nearby = nearbyMetros(m);
   const url = `${SITE_URL}${cityUrl(m)}`;
@@ -73,6 +74,26 @@ export default async function City({ params }) {
                 geo: { "@type": "GeoCoordinates", latitude: m.lat, longitude: m.lng },
               },
               potentialAction: { "@type": "ViewAction", target: `${SITE_URL}${mapLink(m)}`, name: "Open the map" },
+              ...(shows.length
+                ? {
+                    mainEntity: {
+                      "@type": "ItemList",
+                      name: `Public Christmas light displays in ${metroLabel(m)}`,
+                      numberOfItems: shows.length,
+                      itemListElement: shows.map((d, i) => ({
+                        "@type": "ListItem",
+                        position: i + 1,
+                        item: {
+                          "@type": "TouristAttraction",
+                          name: d.name,
+                          description: "Public Christmas light display",
+                          containedInPlace: { "@type": "City", name: m.city },
+                          url: `${SITE_URL}/?near=${d.near}&z=15`,
+                        },
+                      })),
+                    },
+                  }
+                : {}),
             },
             breadcrumbs([
               ["HoHoHomes", "/"],
@@ -110,11 +131,29 @@ export default async function City({ params }) {
         Open the {m.city} lights map
       </a>
 
+      {shows.length > 0 && (
+        <>
+          <h2>Public Christmas light displays in {m.city}</h2>
+          <p>Farms, parks, businesses and churches putting on a show, each confirmed by two people who saw it.</p>
+          <ul className="info-displays">
+            {shows.map((d) => (
+              <li key={`${d.name}-${d.near}`}>
+                <a href={`/?near=${d.near}&z=15`}>
+                  <span aria-hidden="true">⭐</span> {d.name}
+                </a>
+                {d.show ? <small> 🤩 Showstopper</small> : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h2>Seeing the lights in {m.city} tonight</h2>
       <ul>
         <li>The map shows glowing Hot Zones where houses with lights are clustered. Tap one to fly in.</li>
         <li>The brightest lights were confirmed lit in the last 72 hours. Houses nobody has checked lately dim.</li>
         <li>Tap 🤩 for Showstoppers only, the displays people say are worth the drive.</li>
+        <li>Tap ⭐ for public displays only: farms, parks, businesses and churches, each marked with a gold star.</li>
         <li>Most displays are on from dusk until about 10 PM. Park where it&apos;s allowed and enjoy them from the street.</li>
       </ul>
 
