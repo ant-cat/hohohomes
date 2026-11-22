@@ -10,6 +10,8 @@ export const metadata = {
   title,
   description,
   applicationName: "HoHoHomes",
+  // Opened from the home screen it runs full screen; the header already leaves room for the status bar.
+  appleWebApp: { capable: true, title: "HoHoHomes", statusBarStyle: "black-translucent" },
   openGraph: { type: "website", siteName: "HoHoHomes", title, description, images, url: "/" },
   twitter: { card: "summary_large_image", title, description, images },
 };
