@@ -30,7 +30,7 @@ function Sparkle({ size }) {
 export async function GET(req) {
   const params = new URL(req.url).searchParams;
   const near = parseNear(params.get("near"));
-  let headline = "Find Christmas lights near you";
+  let headline = "Let’s go Christmas light hunting!";
   let sub = "Add any you spot with one tap. No sign-up.";
   try {
     if (near) {

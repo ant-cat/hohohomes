@@ -1228,7 +1228,7 @@ export default function LightsMap() {
   const share = useCallback(async () => {
     const map = mapRef.current;
     let url = `${window.location.origin}/`;
-    let text = "🎄 Find Christmas lights near you, and add any you spot.";
+    let text = "🎄 Let’s go Christmas light hunting! Find lights near you, and add any you spot.";
     if (map && map.getZoom() >= 10) {
       const c = map.getCenter();
       if (inUSA(c.lat, c.lng)) {
