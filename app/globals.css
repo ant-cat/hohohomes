@@ -237,21 +237,44 @@ button { cursor: pointer; }
   border: 1px solid rgba(255, 255, 255, .07); box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
   animation: settle .5s ease-out; }
 @keyframes settle { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
-.welcome-lights { position: absolute; top: 0; left: 36px; right: 36px; height: 20px; display: flex;
-  justify-content: space-between; pointer-events: none;
-  border-top: 1px solid rgba(255, 236, 200, .12); border-radius: 0 0 50% 50% / 0 0 12px 12px; }
-.welcome-lights i { width: 5px; height: 7px; margin-top: 5px; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
-  --c: #ffe2a8; background: var(--c); box-shadow: 0 0 6px 1px rgba(255, 214, 140, .45); opacity: .85;
-  animation: glimmer 4s ease-in-out var(--d, 0s) infinite; }
-.welcome-lights i:nth-child(3n+2) { --c: #ffc0b8; }
-.welcome-lights i:nth-child(3n) { --c: #cfe8d8; }
-.welcome-lights i:nth-child(odd) { margin-top: 9px; }
-@keyframes glimmer { 0%, 100% { opacity: .85; } 50% { opacity: .4; } }
+/* A string of fairy lights that chases along, with the odd bright pop */
+.welcome-lights { position: absolute; top: 0; left: 22px; right: 22px; height: 24px; display: flex;
+  justify-content: space-between; pointer-events: none; z-index: 1;
+  border-top: 1px solid rgba(255, 236, 200, .2); border-radius: 0 0 50% 50% / 0 0 14px 14px; }
+.welcome-lights i { position: relative; width: 8px; height: 11px; margin-top: 6px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%; --c: #ff6b6f; background: var(--c);
+  box-shadow: 0 0 8px 2px var(--c); opacity: .35;
+  animation: chase 1.98s ease-in-out var(--d, 0s) infinite; will-change: opacity, transform; }
+.welcome-lights i::before { content: ""; position: absolute; top: -3px; left: 2px; width: 4px; height: 3px;
+  border-radius: 1px; background: rgba(255, 236, 200, .35); }
+.welcome-lights i:nth-child(5n+2) { --c: #6ff0a6; }
+.welcome-lights i:nth-child(5n+3) { --c: #ffcf5c; }
+.welcome-lights i:nth-child(5n+4) { --c: #8ccfff; }
+.welcome-lights i:nth-child(5n) { --c: #ff9bd0; }
+.welcome-lights i:nth-child(odd) { margin-top: 10px; }
+.welcome-lights i:nth-child(4n+1) { animation-name: chase-pop; }
+@keyframes chase { 0%, 100% { opacity: .35; transform: scale(.92); } 20% { opacity: 1; transform: scale(1.12); } 45% { opacity: .8; transform: none; } }
+@keyframes chase-pop { 0%, 100% { opacity: .35; transform: scale(.92); } 20% { opacity: 1; transform: scale(1.35); } 45% { opacity: .85; transform: none; } }
+
+/* Light snow drifting through the card */
+.welcome-snow { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.welcome-snow i { position: absolute; top: -6px; width: var(--s); height: var(--s); border-radius: 50%;
+  background: rgba(255, 255, 255, .8); opacity: 0; will-change: transform, opacity;
+  animation: welcome-snow var(--dur) linear var(--delay) infinite; }
+@keyframes welcome-snow {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: .7; }
+  85% { opacity: .45; }
+  100% { transform: translate(var(--dx), 440px); opacity: 0; }
+}
+.welcome-card > :not(.welcome-snow):not(.welcome-lights) { position: relative; }
 .welcome-card h2 { margin: 0 0 10px; font: 500 25px/1.2 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   letter-spacing: .2px; color: #f6efe2; }
 .welcome-lead { margin: 0 auto 26px; max-width: 250px; color: var(--muted); font-size: 14px; line-height: 1.55; }
 .welcome-steps { list-style: none; margin: 0 0 30px; padding: 22px 0 0; border-top: 1px solid rgba(255, 255, 255, .07);
-  display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.4; color: #d9d6cf; }
+  display: grid; justify-content: center; gap: 12px; font-size: 14px; line-height: 1.4; color: #d9d6cf; text-align: left; }
+.welcome-steps li { display: flex; align-items: center; gap: 10px; }
+.welcome-steps .e { flex: none; width: 20px; font-size: 17px; text-align: center; }
 .welcome-go { display: block; width: 100%; border: 0; border-radius: 14px; padding: 14px 16px;
   font-size: 15px; font-weight: 600; letter-spacing: .2px; color: #141a30; background: #f3ead8; }
 .welcome-go:active, .welcome-add:active { transform: translateY(1px); }
@@ -260,5 +283,7 @@ button { cursor: pointer; }
 .welcome-go:focus-visible, .welcome-add:focus-visible { outline: 2px solid rgba(243, 234, 216, .7); outline-offset: 3px; }
 .welcome-tip { margin: 16px 0 0; font-size: 12px; color: rgba(169, 176, 198, .8); }
 @media (prefers-reduced-motion: reduce) {
-  .welcome, .welcome-card, .welcome-lights i { animation: none; }
+  .welcome, .welcome-card { animation: none; }
+  .welcome-lights i { animation: none; opacity: .9; }
+  .welcome-snow { display: none; }
 }
