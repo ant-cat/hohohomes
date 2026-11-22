@@ -16,7 +16,7 @@ export const metadata = {
 const FAQ = [
   [
     "How do I find Christmas lights near me?",
-    "Open hohohomes.app on your phone. It starts over your city and shows glowing Hot Zones where houses with lights are clustered. Tap a Hot Zone to fly in, then tap any light to see that house. Tap 🤩 to see only Showstoppers.",
+    "Open hohohomes.app on your phone. It starts on the whole country with glowing Hot Zones where houses with lights are clustered. Pinch in, or tap Lights near me. Tap a Hot Zone to fly in, then tap any light to see that house. Tap 🤩 to see only Showstoppers.",
   ],
   [
     "Is HoHoHomes free? Do I need an account?",
@@ -77,7 +77,7 @@ export default function About() {
 
       <h2>Find lights tonight</h2>
       <ul>
-        <li>The map opens over your city. Zoomed out, houses gather into glowing neighborhood Hot Zones.</li>
+        <li>The map opens on the whole country. Pinch in, or tap Lights near me. Zoomed out, houses gather into glowing neighborhood Hot Zones.</li>
         <li>Zoom in and every house is a twinkling light. Tap one for its vibe tags and when it was last seen lit.</li>
         <li>Tap 🤩 for Showstoppers only, the displays people say are worth the drive.</li>
         <li>Share the map, or the area you're looking at, with the Share button.</li>

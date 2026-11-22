@@ -148,6 +148,14 @@ button { cursor: pointer; }
   border-radius: 999px; margin-left: 4px; }
 .banner button.soft { background: none; color: var(--muted); }
 
+/* First look at the map: zoomed out on the whole country, with a nudge to zoom in or find what's near */
+.hint { align-self: center; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; display: flex;
+  gap: 6px; align-items: center; white-space: nowrap; max-width: 100%; color: var(--muted);
+  animation: up .35s ease-out .6s both; }
+.hint button { display: flex; align-items: center; gap: 6px; background: var(--gold-soft); border: 0; color: var(--gold);
+  font-weight: 700; font-size: 14px; padding: 8px 12px; border-radius: 999px; }
+.hint button:active { transform: translateY(1px); }
+
 /* After a drop: the undo toast and the vibe tray */
 .drop-toast { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-radius: 18px; padding: 8px;
   font-size: 14px; animation: up .22s cubic-bezier(.2, .9, .3, 1.15); }
@@ -269,7 +277,7 @@ button { cursor: pointer; }
   .snow { display: none; }
   .orb i, .orb.show::before { animation: none; }
   .lightup i { animation-duration: .6s; }
-  .tray, .drop-toast, .banner, .chip[aria-pressed="true"], .dock, .primary .tree { animation: none; }
+  .tray, .drop-toast, .banner, .hint, .chip[aria-pressed="true"], .dock, .primary .tree { animation: none; }
   .dock-lights i { animation: none; }
   .stack { transition: none; }
 }

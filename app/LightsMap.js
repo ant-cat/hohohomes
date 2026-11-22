@@ -169,6 +169,8 @@ export default function LightsMap() {
   const [muted, setMuted] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [welcome, setWelcome] = useState(false); // first visit on this device
+  const [hint, setHint] = useState(false); // "near me or pinch to explore", until they move the map
+  const [touch, setTouch] = useState(true);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -179,6 +181,9 @@ export default function LightsMap() {
     mutedRef.current = m;
     setMuted(m);
     setWelcome(shouldWelcome());
+    try {
+      setTouch(window.matchMedia("(pointer: coarse)").matches);
+    } catch {}
   }, []);
 
   const closeWelcome = useCallback(() => {
@@ -705,34 +710,14 @@ export default function LightsMap() {
       }
       map.touchZoomRotate.disableRotation();
 
-      // Open where the visitor is, if they're in the US. Never prompts:
-      // precise location only if they've already allowed it, otherwise the rough
-      // city-level guess from their IP. Gives up the moment they move the map themselves.
-      let touched = false;
-      map.once("dragstart", () => (touched = true));
-      map.on("zoomstart", (e) => e.originalEvent && (touched = true));
-      const openOn = (lat, lng, zoom) => {
-        if (cancelled || shared || touched || sessionRef.current || modeRef.current !== "idle") return;
-        if (!inUSA(lat, lng)) return;
-        map.easeTo({ center: [lng, lat], zoom, duration: 1200, essential: true });
-      };
-      (async () => {
-        try {
-          const perm = navigator.permissions && (await navigator.permissions.query({ name: "geolocation" }));
-          if (perm && perm.state === "granted") {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => openOn(pos.coords.latitude, pos.coords.longitude, 14.5),
-              () => {},
-              { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 }
-            );
-            return;
-          }
-        } catch {}
-        try {
-          const where = await (await fetch("/api/where")).json();
-          if (Number.isFinite(where.lat)) openOn(where.lat, where.lng, 11);
-        } catch {}
-      })();
+      // Open on the whole country rather than guessing a city, which can land on an empty patch
+      // of map. A hint offers "near me" (the only thing that asks for location) or pinch to explore,
+      // and goes away the moment they move the map themselves.
+      if (!shared) setHint(true);
+      const unhint = (e) => e.originalEvent && setHint(false);
+      map.on("dragstart", unhint);
+      map.on("zoomstart", unhint);
+      map.on("click", () => setHint(false));
       mapRef.current = map;
       map.on("error", (e) => console.error("map error", e && e.error));
 
@@ -1166,6 +1151,7 @@ export default function LightsMap() {
   }, [dropAt, startPicking]);
 
   const nearMe = useCallback(() => {
+    setHint(false);
     if (!navigator.geolocation) return say("Location isn't available on this device.");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -1181,6 +1167,7 @@ export default function LightsMap() {
     async (e) => {
       e.preventDefault();
       primeAudio();
+      setHint(false);
       const q = query.trim();
       if (!q) return;
       const c = mapRef.current ? mapRef.current.getCenter() : { lng: USA_CENTER[0], lat: USA_CENTER[1] };
@@ -1388,6 +1375,15 @@ export default function LightsMap() {
             </svg>
           </button>
         </div>
+
+        {hint && !welcome && !banner && !drop && mode === "idle" && (
+          <div className="hint glass" role="status">
+            <span>{touch ? "Pinch to explore, or" : "Zoom in to explore, or"}</span>
+            <button type="button" onClick={nearMe}>
+              <span aria-hidden="true">📍</span> Lights near me
+            </button>
+          </div>
+        )}
 
         {banner && (
           <div className="banner glass" role="status">
