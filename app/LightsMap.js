@@ -1299,9 +1299,9 @@ export default function LightsMap() {
               onClick={toggleMute}
               aria-pressed={muted}
               aria-label="Mute sounds"
-              title={muted ? "Sounds off" : "Sounds on"}
+              title={muted ? "Sound off" : "Sound on"}
             >
-              <span aria-hidden="true">{muted ? "🔕" : "🔔"}</span>
+              <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>
             </button>
             <button type="button" className="icon-btn share" onClick={share} aria-label="Share this map" title="Share">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1323,32 +1323,40 @@ export default function LightsMap() {
 
       <div className="stack" inert={welcome || undefined}>
         <div className="credits">
-          {!creditsOpen && (
-            <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
-              Created by <b>Ant.Cat</b>
-            </a>
-          )}
           {creditsOpen && (
-            <div className="credits-text glass">
-              <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
-                OpenFreeMap
-              </a>{" "}
-              <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">
-                © OpenMapTiles
-              </a>{" "}
-              Data from{" "}
-              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
-                OpenStreetMap
+            <div id="credits-panel" className="credits-text glass">
+              <a className="byline" href="https://ant.cat/writing/2026-11-21-hohohomes" target="_blank" rel="noopener">
+                Created by <b>Ant.Cat</b>
               </a>
+              <span className="credits-map">
+                Map:{" "}
+                <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
+                  OpenFreeMap
+                </a>{" "}
+                <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">
+                  © OpenMapTiles
+                </a>{" "}
+                Data from{" "}
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+                  OpenStreetMap
+                </a>
+              </span>
             </div>
           )}
           <button
-            className="credits-btn glass"
+            type="button"
+            className="credits-btn"
             onClick={() => setCreditsOpen((o) => !o)}
             aria-expanded={creditsOpen}
-            aria-label="Map credits"
+            aria-controls="credits-panel"
+            aria-label="About HoHoHomes"
+            title="About"
           >
-            i
+            <svg width="26" height="26" viewBox="3.5 4.5 26 23" aria-hidden="true">
+              <path d="M6 22C7 12 12 6 17 6c5 0 8.5 3 9.5 8L24 15c-1-3-3-4.5-5-4 2 3 3 7 3.5 11z" fill="#9c4a52" />
+              <rect x="4.5" y="20.5" width="20" height="5.5" rx="2.75" fill="#e6dccb" />
+              <circle cx="25.6" cy="16" r="3" fill="#e6dccb" />
+            </svg>
           </button>
         </div>
 
