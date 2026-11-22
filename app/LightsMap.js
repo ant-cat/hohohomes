@@ -33,6 +33,32 @@ const SNOW = Array.from({ length: 16 }, (_, i) => ({
   delay: `${-((i * 29) % 11)}s`,
   dx: `${((i * 17) % 21) - 10}px`,
 }));
+// The sound button: a sleigh bell that rings (waves) or sits quiet (a small ✕).
+function JingleBell({ muted }) {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+      <g transform="translate(-2.6 .4) scale(1.02)" opacity={muted ? 0.55 : 1}>
+        <path d="M9.6 6.2c-1.3-.9-2.9-.7-3.6.2 1.2.9 2.6.9 3.6-.2z" fill="#7fa58a" />
+        <path d="M14.4 6.2c1.3-.9 2.9-.7 3.6.2-1.2.9-2.6.9-3.6-.2z" fill="#6c9478" />
+        <circle cx="12" cy="5.4" r="1.7" fill="none" stroke="#d9b56a" strokeWidth="1.4" />
+        <circle cx="12" cy="13.6" r="6.6" fill="#d9b56a" />
+        <path d="M5.6 12.6h12.8" stroke="#9a7a3c" strokeWidth="1.3" />
+        <circle cx="12" cy="16.4" r="1.25" fill="#7a5c28" />
+        <path d="M12 17.4v2.4" stroke="#7a5c28" strokeWidth="1.1" strokeLinecap="round" />
+        <circle cx="9.6" cy="10.6" r="1.1" fill="#f3e2b4" opacity=".7" />
+      </g>
+      {muted ? (
+        <path d="M18 10.5l4 4M22 10.5l-4 4" stroke="#f0e4c8" strokeWidth="1.8" strokeLinecap="round" />
+      ) : (
+        <g className="bell-waves" fill="none" stroke="#f0e4c8" strokeWidth="1.5" strokeLinecap="round">
+          <path d="M17.8 10.3c.9.9 1.3 2 1.3 3.2s-.4 2.3-1.3 3.2" />
+          <path d="M20.4 8.4c1.4 1.4 2.1 3.2 2.1 5.1s-.7 3.7-2.1 5.1" opacity=".55" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
 // A string of fairy lights along the top of the bottom dock, each with its own twinkle.
 const DOCK_LIGHTS = Array.from({ length: 11 }, (_, i) => `${-((i * 0.73) % 2.6).toFixed(2)}s`);
 
@@ -1301,7 +1327,7 @@ export default function LightsMap() {
               aria-label="Mute sounds"
               title={muted ? "Sound off" : "Sound on"}
             >
-              <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>
+              <JingleBell muted={muted} />
             </button>
             <button type="button" className="icon-btn share" onClick={share} aria-label="Share this map" title="Share">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
