@@ -87,7 +87,7 @@ export default function ScoutBadges() {
     <>
       <button
         type="button"
-        className="scout-btn glass"
+        className="scout-btn icon-btn"
         onClick={open}
         aria-haspopup="dialog"
         aria-label={`Your scout badges, ${earnedCount} of ${BADGES.length} earned`}

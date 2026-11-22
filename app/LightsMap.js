@@ -33,6 +33,8 @@ const SNOW = Array.from({ length: 16 }, (_, i) => ({
   delay: `${-((i * 29) % 11)}s`,
   dx: `${((i * 17) % 21) - 10}px`,
 }));
+// A string of fairy lights along the top of the bottom dock, each with its own twinkle.
+const DOCK_LIGHTS = Array.from({ length: 11 }, (_, i) => `${-((i * 0.73) % 2.6).toFixed(2)}s`);
 
 
 function hash(s) {
@@ -115,6 +117,25 @@ export default function LightsMap() {
   const showOnlyRef = useRef(false);
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
+
+  // Keep the bottom dock above the on-screen keyboard while typing an address.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const lift = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+      root.style.setProperty("--kb", `${kb > 80 ? kb : 0}px`);
+    };
+    lift();
+    vv.addEventListener("resize", lift);
+    vv.addEventListener("scroll", lift);
+    return () => {
+      vv.removeEventListener("resize", lift);
+      vv.removeEventListener("scroll", lift);
+      root.style.removeProperty("--kb");
+    };
+  }, []);
   const [query, setQuery] = useState("");
   const [mapError, setMapError] = useState("");
   const [drop, setDrop] = useState(null); // { status, merged, snapped, rough, vibes }
@@ -1254,54 +1275,44 @@ export default function LightsMap() {
           </div>
           <div className="brand-title">
             <h1>
-              HoHo<span>Homes</span> ✨
+              HoHo<span>Homes</span>
             </h1>
-            <small>Christmas lights across the USA</small>
+            <p className="count" aria-live="polite">
+              <b>{count === null ? "…" : showOnly ? shows : count}</b>{" "}
+              {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
+            </p>
           </div>
-          <div className="count">
-            <b>{count === null ? "…" : showOnly ? shows : count}</b>
-            {showOnly ? (shows === 1 ? "showstopper" : "showstoppers") : count === 1 ? "house lit" : "houses lit"}
+          <div className="bar-icons">
+            <button
+              type="button"
+              className="icon-btn wow-toggle"
+              onClick={toggleShowOnly}
+              aria-pressed={showOnly}
+              aria-label="Showstoppers only"
+              title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
+            >
+              <span aria-hidden="true">🤩</span>
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={toggleMute}
+              aria-pressed={muted}
+              aria-label="Mute sounds"
+              title={muted ? "Sounds off" : "Sounds on"}
+            >
+              <span aria-hidden="true">{muted ? "🔕" : "🔔"}</span>
+            </button>
+            <button type="button" className="icon-btn share" onClick={share} aria-label="Share this map" title="Share">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="M7 8l5-5 5 5" />
+                <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+              </svg>
+            </button>
+            <ScoutBadges />
           </div>
-          <button
-            className="mute wow-toggle"
-            onClick={toggleShowOnly}
-            aria-pressed={showOnly}
-            aria-label={showOnly ? "Show all houses" : "Show Showstoppers only"}
-            title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
-          >
-            🤩
-          </button>
-          <button
-            className="mute"
-            onClick={toggleMute}
-            aria-pressed={muted}
-            aria-label={muted ? "Turn sounds on" : "Mute sounds"}
-            title={muted ? "Sounds off" : "Sounds on"}
-          >
-            {muted ? "🔕" : "🔔"}
-          </button>
         </div>
-        <form className="search" onSubmit={search}>
-          <input
-            className="glass"
-            type="search"
-            inputMode="search"
-            enterKeyHint="search"
-            placeholder="Add by address"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search for an address to add"
-          />
-          <button type="button" className="share glass" onClick={share} aria-label="Share this map">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="M7 8l5-5 5 5" />
-              <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
-            </svg>
-            Share
-          </button>
-          <ScoutBadges />
-        </form>
       </div>
 
       {toast && (
@@ -1407,23 +1418,61 @@ export default function LightsMap() {
         )}
 
         {showDock && (
-          <div className="dock">
-            <button className="round glass" onClick={nearMe} aria-label="Show lights near me">
-              ◎
-            </button>
-            <button className="primary" onClick={iSeeLights} disabled={mode === "locating"}>
-              {mode === "locating" ? "Finding you…" : "🎄 I see lights here"}
-            </button>
-            <button
-              className="round glass"
-              onClick={() => {
-                primeAudio();
-                startPicking();
-              }}
-              aria-label="Pick a house on the map"
-            >
-              📍
-            </button>
+          <div className="dock glass">
+            <div className="dock-lights" aria-hidden="true">
+              {DOCK_LIGHTS.map((d, i) => (
+                <i key={i} style={{ "--d": d }} />
+              ))}
+            </div>
+            <form className="search" role="search" onSubmit={search}>
+              <svg className="search-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="M16 16l4.5 4.5" />
+              </svg>
+              <input
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="street-address"
+                placeholder="Add by address"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Add a house by address"
+              />
+              <button
+                type="button"
+                className="pin-btn"
+                onClick={() => {
+                  primeAudio();
+                  startPicking();
+                }}
+                aria-label="Pick a house on the map"
+                title="Pick on the map"
+              >
+                <span aria-hidden="true">📍</span>
+              </button>
+            </form>
+            <div className="dock-row">
+              <button type="button" className="locate" onClick={nearMe} aria-label="Show lights near me" title="Near me">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="6.5" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+                </svg>
+              </button>
+              <button type="button" className="primary" onClick={iSeeLights} disabled={mode === "locating"}>
+                {mode === "locating" ? (
+                  "Finding you…"
+                ) : (
+                  <>
+                    <span className="tree" aria-hidden="true">
+                      🎄
+                    </span>
+                    I see lights here
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>
