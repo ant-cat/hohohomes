@@ -50,10 +50,19 @@ function installHow() {
 }
 
 const STEPS = [
-  "Zoom out to find the glowing streets.",
-  "Tap “I see lights here” to add a house.",
-  "Tap any house to cheer it on.",
+  ["🔭", "Zoom out to find the glowing streets."],
+  ["🎄", "Tap “I see lights here” to add a house."],
+  ["🤩", "Tap any house to cheer it on."],
 ];
+
+// A few slow flakes drifting through the card. Fixed values, so the server and phone draw the same thing.
+const FLAKES = Array.from({ length: 14 }, (_, i) => ({
+  left: `${(i * 41 + 7) % 100}%`,
+  size: `${2 + ((i * 5) % 3)}px`,
+  dur: `${7 + ((i * 13) % 6)}s`,
+  delay: `${-((i * 23) % 12)}s`,
+  dx: `${((i * 17) % 25) - 12}px`,
+}));
 
 // A one-time hello before the map. It never asks for location: the map does that only when you tap.
 export default function Welcome({ onClose }) {
@@ -114,9 +123,14 @@ export default function Welcome({ onClose }) {
         aria-labelledby="welcome-title"
         aria-describedby="welcome-lead"
       >
+        <div className="welcome-snow" aria-hidden="true">
+          {FLAKES.map((f, i) => (
+            <i key={i} style={{ left: f.left, "--s": f.size, "--dur": f.dur, "--delay": f.delay, "--dx": f.dx }} />
+          ))}
+        </div>
         <div className="welcome-lights" aria-hidden="true">
-          {Array.from({ length: 7 }, (_, i) => (
-            <i key={i} style={{ "--d": `${-(i * 0.9).toFixed(1)}s` }} />
+          {Array.from({ length: 11 }, (_, i) => (
+            <i key={i} style={{ "--d": `${(i * 0.18).toFixed(2)}s` }} />
           ))}
         </div>
         <h2 id="welcome-title">Welcome to HoHoHomes</h2>
@@ -124,8 +138,13 @@ export default function Welcome({ onClose }) {
           Christmas lights near you, shared by neighbors. No sign-up needed.
         </p>
         <ul className="welcome-steps">
-          {STEPS.map((t) => (
-            <li key={t}>{t}</li>
+          {STEPS.map(([e, t]) => (
+            <li key={t}>
+              <span className="e" aria-hidden="true">
+                {e}
+              </span>
+              {t}
+            </li>
           ))}
         </ul>
         <button className="welcome-go" onClick={onClose}>
