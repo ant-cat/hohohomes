@@ -50,7 +50,6 @@ button { cursor: pointer; }
 .icon-btn:focus-visible, .pin-btn:focus-visible, .locate:focus-visible, .primary:focus-visible {
   outline: 2px solid rgba(243, 234, 216, .8); outline-offset: 2px; }
 .icon-btn.share { color: var(--gold); }
-.icon-btn[aria-pressed="true"]:not(.wow-toggle) { opacity: .7; }
 .wow-toggle span { opacity: .8; filter: saturate(.85); }
 .wow-toggle[aria-pressed="true"] { border-color: var(--gold); background: var(--gold-soft);
   box-shadow: 0 0 14px rgba(255, 201, 77, .35); }
