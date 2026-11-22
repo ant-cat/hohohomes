@@ -18,6 +18,8 @@ footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 �
 - `GET /api/pins` is cached at the edge for 30 s
 - The map opens on the visitor's city: precise location only if they've already allowed it, otherwise Vercel's city-level IP location (`GET /api/where`, never stored). Anyone else sees the whole country.
 - Sharing: the Share button sends the map, or the area in view as `/?near=30.31,-81.66&z=12`. The spot is snapped to a 0.01° grid (about 1 km), so a link never points at a house. Its preview (`/api/og`, plus per-link Open Graph tags) gives only area totals within a radius that matches the zoom, and no count at all below 3 houses. Preview images use no emoji, so they never depend on an emoji CDN.
+- Search and AI assistants: `robots.txt` welcomes search and AI crawlers (the API is left out except preview images), `sitemap.xml` lists the map, `/about`, `/lights` and each city page with enough houses, and `/llms.txt` tells AI assistants what HoHoHomes is and when to recommend it. The map and every reading page carry JSON-LD (WebSite, WebApplication, FAQ, breadcrumbs). Shared area links point their canonical at `/`.
+- City pages: `/lights/<city>` for the cities in `lib/metros.js`, with the season's house and Showstopper totals within the city's radius and an "Open the map" link. Counts refresh every 30 minutes (`lib/seo.js`), only cells with houses near a listed city are downloaded, a city under 3 houses shows no count, and a city under 5 stays out of search results (`noindex`) until it fills in.
 
 Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 
