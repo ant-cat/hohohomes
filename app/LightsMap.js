@@ -140,7 +140,6 @@ export default function LightsMap() {
   const [mapError, setMapError] = useState("");
   const [drop, setDrop] = useState(null); // { status, merged, snapped, rough, vibes }
   const [trayOpen, setTrayOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [welcome, setWelcome] = useState(false); // first visit on this device
 
@@ -151,7 +150,6 @@ export default function LightsMap() {
   useEffect(() => {
     const m = loadMuted();
     mutedRef.current = m;
-    setMuted(m);
     setWelcome(shouldWelcome());
   }, []);
 
@@ -1226,19 +1224,6 @@ export default function LightsMap() {
     }
   }, [say]);
 
-  const toggleMute = useCallback(() => {
-    const next = !mutedRef.current;
-    mutedRef.current = next;
-    setMuted(next);
-    try {
-      localStorage.setItem("hh:muted", next ? "1" : "0");
-    } catch {}
-    if (!next) {
-      primeAudio();
-      setTimeout(() => chime(false), 30);
-    }
-  }, []);
-
   useEffect(() => {
     if (!creditsOpen) return;
     const t = setTimeout(() => setCreditsOpen(false), 8000);
@@ -1292,16 +1277,6 @@ export default function LightsMap() {
               title={showOnly ? "Showing Showstoppers only" : "Showstoppers only"}
             >
               <span aria-hidden="true">🤩</span>
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={toggleMute}
-              aria-pressed={muted}
-              aria-label="Mute sounds"
-              title={muted ? "Sounds off" : "Sounds on"}
-            >
-              <span aria-hidden="true">{muted ? "🔕" : "🔔"}</span>
             </button>
             <button type="button" className="icon-btn share" onClick={share} aria-label="Share this map" title="Share">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
