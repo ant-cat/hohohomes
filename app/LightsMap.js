@@ -10,6 +10,7 @@ import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted, rememberMyDisplay, forgetMyDisplay } from "./popup";
 import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
+import { track } from "../lib/analytics";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
@@ -491,6 +492,7 @@ export default function LightsMap() {
         rememberConfirmed(id);
         applyCells(data.cells);
         scoutLit(id);
+        track("lit_tonight");
       } catch (err) {
         revert();
         say(err.message);
@@ -512,6 +514,7 @@ export default function LightsMap() {
         rememberVoted(id);
         applyCells(data.cells);
         scoutWow(id);
+        track("worth_the_drive");
       } catch (err) {
         revert();
         say(err.message);
@@ -1147,6 +1150,7 @@ export default function LightsMap() {
           s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
           applyCells(data.cells);
           scoutAdded(s.pinId);
+          track("add_house", { merged: data.merged ? "yes" : "no" });
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
           pushVibes(s);
           return true;
@@ -1442,9 +1446,11 @@ export default function LightsMap() {
     try {
       if (navigator.share) {
         await navigator.share({ title: "HoHoHomes", text, url });
+        track("share", { how: "share_sheet" });
         return;
       }
       await navigator.clipboard.writeText(url);
+      track("share", { how: "copy_link" });
       say("Link copied. Paste it anywhere 🎄");
     } catch (err) {
       if (err && err.name === "AbortError") return; // closed the share sheet

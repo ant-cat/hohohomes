@@ -2,6 +2,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 import { SHORT_DESCRIPTION } from "../lib/seo";
+import SiteAnalytics from "./SiteAnalytics";
 
 const title = "HoHoHomes · Find Christmas lights near you";
 const description = SHORT_DESCRIPTION;
@@ -31,7 +32,10 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <SiteAnalytics />
+      </body>
     </html>
   );
 }
