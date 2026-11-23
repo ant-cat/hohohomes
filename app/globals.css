@@ -198,6 +198,18 @@ button { cursor: pointer; }
 .name-row button { flex: none; min-width: 64px; border: 0; border-radius: 12px; padding: 0 14px; font-weight: 800;
   color: #2a1a00; background: linear-gradient(180deg, #ffd977, #f2aa2c); }
 .name-row button:disabled { background: var(--gold-soft); color: rgba(255, 201, 77, .6); }
+/* When a display runs: two dates and its hours, all optional */
+.when-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; animation: up .22s ease-out; }
+.when-row label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; font-weight: 700; color: var(--muted); }
+.when-row .when-hours { grid-column: 1 / -1; }
+.when-toggle { display: block; margin-top: 8px; padding: 6px 2px; border: 0; background: none; color: var(--gold);
+  font-size: 13px; font-weight: 700; text-align: left; }
+.when-toggle span { color: var(--muted); font-weight: 500; }
+.when-toggle:focus-visible { outline: 2px solid rgba(243, 234, 216, .8); outline-offset: 2px; border-radius: 8px; }
+.when-row input { min-width: 0; width: 100%; min-height: 38px; padding: 6px 10px; border-radius: 12px; font-size: 16px; color: var(--text);
+  background: rgba(0, 0, 0, .25); border: 1px solid rgba(255, 201, 77, .25); outline: none; color-scheme: dark; }
+.when-row input:focus-visible { outline: 2px solid rgba(243, 234, 216, .8); outline-offset: 2px; }
+.when-row input::placeholder { color: rgba(169, 176, 198, .75); }
 .name-note { margin: 6px 2px 10px; font-size: 12px; line-height: 1.4; color: var(--muted); }
 .vibe-label { margin: 0 2px 8px; font-size: 12px; color: var(--muted); }
 .chip { min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 10px 12px; text-align: left;
@@ -261,6 +273,10 @@ button { cursor: pointer; }
 .star-names .star-name { display: block; }
 .orb.star.stale i { animation: none; opacity: .6; filter: saturate(.6); }
 .orb.star.stale::before { animation: none; opacity: .3; }
+/* A display that hasn't opened yet (or has closed for the season): a pale star, still easy to find */
+.orb.star.soon i { animation: none; opacity: .5; filter: saturate(.45) brightness(1.1); }
+.orb.star.soon::before { animation: none; opacity: .18; }
+.orb.star.soon .star-name { opacity: .7; }
 @keyframes starglint {
   0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
   48% { transform: scale(.9) rotate(-6deg); filter: brightness(.85); }
@@ -320,6 +336,10 @@ button { cursor: pointer; }
 .wow-btn:disabled { opacity: .75; cursor: default; }
 .wow-btn.pulse { animation: litpulse .9s ease-out; }
 .pop-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.pop-when { margin-top: 6px; font-size: 13px; font-weight: 600; color: #f3e9cf; }
+.pop-phase { display: inline-block; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  color: var(--gold); background: var(--gold-soft); border: 1px solid rgba(255, 201, 77, .3); }
+.pop-soon .pop-title.display, .pop-soon .pop-kind { opacity: .62; }
 .pop-vibes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .pop-vibe { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: rgba(255, 255, 255, .07);
   border: 1px solid var(--line); }
@@ -344,7 +364,7 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .snow { display: none; }
   .orb i, .orb.show::before, .orb.star::before { animation: none; }
-  .kind-display[aria-checked="true"] .kind-star, .name-row { animation: none; }
+  .kind-display[aria-checked="true"] .kind-star, .name-row, .when-row { animation: none; }
   .disp-toggle .glint { display: none; }
   .lightup i { animation-duration: .6s; }
   .tray, .drop-toast, .banner, .hint, .chip[aria-pressed="true"], .dock, .primary .tree { animation: none; }

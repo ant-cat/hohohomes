@@ -23,6 +23,9 @@ footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 �
 
 Live at https://hohohomes.app (hohoho.homes redirects there; hohohomes.vercel.app and the old cheerhere.vercel.app also work).
 
+- Public displays can carry their season: first night, last night and short hours, added in the "Add dates and hours" row when someone names a display. Cards show the dates; before its first night (or after its last) a display's star and card look paler and the card says when it starts. In season, a dated display stays bright without "Lit Tonight" taps.
+- Seeding known displays (owner only): `curl -X POST -H "x-admin-key: $ADMIN_KEY" "https://hohohomes.app/api/admin/seed?set=jacksonville-2026"` adds the list in `lib/seeds/`, already confirmed, with dates. Running it twice updates the same stars instead of adding more.
+
 Env: `BLOB_READ_WRITE_TOKEN` (set by connecting the Blob store to the Vercel project), `HIDDEN_PIN_IDS` (optional, comma-separated pin ids to hide).
 
 Pushes to `main` on GitHub deploy to production automatically.

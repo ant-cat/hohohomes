@@ -1,7 +1,7 @@
 import { readCells, addPin, changeReport, cleanNote, inUSA } from "../../../lib/pins";
 import { CELL_RE } from "../../../lib/region";
 import { json, clientIp, rateLimiter, readJson, deviceKey } from "../../../lib/http";
-import { checkName } from "../../../lib/displays";
+import { checkName, checkWhen } from "../../../lib/displays";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +59,9 @@ export async function POST(req) {
   }
 }
 
-// Change your own recent pin: { token, action: "undo" | "move" | "vibes" | "display", lat?, lng?, vibes?, name? }
+// Change your own recent pin: { token, action: "undo" | "move" | "vibes" | "display", lat?, lng?, vibes?, name?, when? }
 // "display" names it as a public display (farm, park, business…); an empty name makes it a home again.
+// when: { from, to, hours } gives its season (YYYY-MM-DD dates and short hours), all optional.
 export async function PATCH(req) {
   if (changeLimited(clientIp(req))) return json({ error: "Slow down a little and try again." }, 429);
   const body = await readJson(req);
@@ -76,7 +77,9 @@ export async function PATCH(req) {
   } else if (action === "display") {
     const checked = checkName(body.name);
     if (checked.error) return json({ error: checked.error }, 400);
-    extra = { name: checked.name, key: deviceKey(req) };
+    const when = checkWhen(body.when);
+    if (when.error) return json({ error: when.error }, 400);
+    extra = { name: checked.name, key: deviceKey(req), when: when.when };
   } else if (action !== "undo") {
     return json({ error: "Unknown action." }, 400);
   }
