@@ -1,8 +1,11 @@
 import { VIBES, FRESH_MS, lastLit, isShowstopper } from "../lib/vibes";
+import { isDisplay, isPendingDisplay } from "../lib/displays";
 
 const LIT_KEY = (id) => `hh:lit:${id}`;
 const WOW_KEY = (id) => `hh:wow:${id}`;
 const WOW_WINDOW = 12 * 60 * 60 * 1000;
+const DISP_KEY = (id) => `hh:disp:${id}`;
+const DISP_WINDOW = 14 * 24 * 60 * 60 * 1000;
 const MINE_WINDOW = 6 * 60 * 60 * 1000;
 
 function short(ms) {
@@ -52,6 +55,28 @@ export function rememberVoted(id) {
   } catch {}
 }
 
+// A display you named on this phone, so its card can say so while it waits for a second look.
+export function rememberMyDisplay(id, name) {
+  try {
+    localStorage.setItem(DISP_KEY(id), JSON.stringify({ n: name, at: Date.now() }));
+  } catch {}
+}
+
+export function forgetMyDisplay(id) {
+  try {
+    localStorage.removeItem(DISP_KEY(id));
+  } catch {}
+}
+
+function myDisplay(id) {
+  try {
+    const d = JSON.parse(localStorage.getItem(DISP_KEY(id)) || "null");
+    return d && Date.now() - d.at < DISP_WINDOW ? d.n : "";
+  } catch {
+    return "";
+  }
+}
+
 const wowText = (n) => `🤩 ${n} ${n === 1 ? "person says" : "people say"} it's worth the drive`;
 
 function div(cls, text) {
@@ -62,15 +87,47 @@ function div(cls, text) {
 }
 
 // The card shown when someone taps a house.
-export function popupNode(pin, { onLit, onWow, onRemove }) {
+export function popupNode(pin, { onLit, onWow, onSeeDisplay, onRemove }) {
   const el = div("pop");
 
   // Only ever celebrate upward: Showstoppers get a badge, every other house is simply "Lights!".
   const show = isShowstopper(pin);
-  el.appendChild(div(`pop-title${show ? " show" : ""}`, show ? "🤩 Showstopper" : "✨ Lights!"));
-
   const c = pin.c || 1;
+  if (isDisplay(pin)) {
+    el.classList.add("pop-display");
+    el.appendChild(div("pop-kind", show ? "⭐ Public display · 🤩 Showstopper" : "⭐ Public display"));
+    el.appendChild(div("pop-title display", pin.d.n));
+  } else {
+    el.appendChild(div(`pop-title${show ? " show" : ""}`, show ? "🤩 Showstopper" : "✨ Lights!"));
+  }
   el.appendChild(div("pop-meta", `Seen by ${c} ${c === 1 ? "person" : "people"}`));
+
+  // A display someone named, waiting for a second pair of eyes. Its name stays hidden until then.
+  if (isPendingDisplay(pin)) {
+    const mine = myDisplay(pin.id);
+    const box = div("pop-pending");
+    if (mine) {
+      box.appendChild(div("pop-pending-text", `⭐ You named this ${mine}. It shows as a public display once someone else confirms it.`));
+    } else {
+      box.appendChild(div("pop-pending-text", "⭐ Someone says this is a public display, like a farm, park or business. Is it?"));
+      const see = document.createElement("button");
+      see.type = "button";
+      see.className = "see-btn";
+      see.textContent = "I see this display too";
+      see.addEventListener("click", () => {
+        see.disabled = true;
+        see.textContent = "Thanks! ⭐";
+        see.classList.add("pulse");
+        onSeeDisplay(pin.id).catch(() => {
+          see.disabled = false;
+          see.textContent = "I see this display too";
+          see.classList.remove("pulse");
+        });
+      });
+      box.appendChild(see);
+    }
+    el.appendChild(box);
+  }
   const wowLine = div("pop-wow", pin.w ? wowText(pin.w) : "");
   if (!pin.w) wowLine.hidden = true;
   el.appendChild(wowLine);
