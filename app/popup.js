@@ -1,5 +1,5 @@
 import { VIBES, FRESH_MS, lastLit, isShowstopper } from "../lib/vibes";
-import { isDisplay, isPendingDisplay } from "../lib/displays";
+import { isDisplay, isPendingDisplay, displayPhase, dateRange, shortDay } from "../lib/displays";
 
 const LIT_KEY = (id) => `hh:lit:${id}`;
 const WOW_KEY = (id) => `hh:wow:${id}`;
@@ -93,10 +93,18 @@ export function popupNode(pin, { onLit, onWow, onSeeDisplay, onRemove }) {
   // Only ever celebrate upward: Showstoppers get a badge, every other house is simply "Lights!".
   const show = isShowstopper(pin);
   const c = pin.c || 1;
+  const phase = isDisplay(pin) ? displayPhase(pin.d) : "";
   if (isDisplay(pin)) {
     el.classList.add("pop-display");
+    if (phase === "soon" || phase === "over") el.classList.add("pop-soon");
     el.appendChild(div("pop-kind", show ? "⭐ Public display · 🤩 Showstopper" : "⭐ Public display"));
     el.appendChild(div("pop-title display", pin.d.n));
+    // Its season: "Nov 27 – Jan 3 · 6-10 PM", with a note when it hasn't started or has ended.
+    const range = dateRange(pin.d);
+    const when = [range, pin.d.h].filter(Boolean).join(" · ");
+    if (phase === "soon" && pin.d.f) el.appendChild(div("pop-phase", `Not lit yet · starts ${shortDay(pin.d.f)}`));
+    if (phase === "over") el.appendChild(div("pop-phase", "Done for this season"));
+    if (when) el.appendChild(div("pop-when", `🗓️ ${when}`));
   } else {
     el.appendChild(div(`pop-title${show ? " show" : ""}`, show ? "🤩 Showstopper" : "✨ Lights!"));
   }
@@ -168,7 +176,8 @@ export function popupNode(pin, { onLit, onWow, onSeeDisplay, onRemove }) {
   });
   lit.appendChild(btn);
   lit.appendChild(ago);
-  el.appendChild(lit);
+  // Nothing to confirm before a display opens or after it closes.
+  if (phase !== "soon" && phase !== "over") el.appendChild(lit);
 
   const wow = document.createElement("button");
   wow.type = "button";

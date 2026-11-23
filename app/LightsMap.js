@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VIBES, WOW, isShowstopper } from "../lib/vibes";
-import { isDisplay, checkName, NAME_MAX } from "../lib/displays";
+import { isDisplay, checkName, checkWhen, displayPhase, NAME_MAX, HOURS_MAX } from "../lib/displays";
 import ScoutBadges from "./ScoutBadges";
 import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
 import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
@@ -186,6 +186,7 @@ export default function LightsMap() {
   const lastWriteRef = useRef(0);
   const vibeTimerRef = useRef(null);
   const nameRef = useRef(""); // the display name being typed in the tray
+  const whenRef = useRef({ from: "", to: "", hours: "" }); // its season, also typed in the tray
   const openPopupRef = useRef(() => {});
   const cellsRef = useRef(new Map()); // cell -> { pins, at }: the houses downloaded so far
   const summaryRef = useRef(null); // cell -> { n, s, lat, lng }: houses per cell, nationwide
@@ -315,7 +316,10 @@ export default function LightsMap() {
         o.lng = p.lng;
         o.lat = p.lat;
       }
-      o.el.classList.toggle("stale", !isFresh(p, now));
+      // A display with dates is lit through its season, and looks lighter before and after it.
+      const phase = o.star ? displayPhase(p.d, now) : "";
+      o.el.classList.toggle("stale", phase ? false : !isFresh(p, now));
+      o.el.classList.toggle("soon", phase === "soon" || phase === "over");
       o.el.classList.toggle("show", isShowstopper(p));
     }
   }, []);
@@ -1116,11 +1120,12 @@ export default function LightsMap() {
           spot = s;
         }
       }
-      const s = { gps: lngLat, lngLat: spot, vibes: [], token: null, pinId: null, sent: "[]", merged: false, kind: "home", sentName: "" };
+      const s = { gps: lngLat, lngLat: spot, vibes: [], token: null, pinId: null, sent: "[]", merged: false, kind: "home", sentName: "", sentWhen: "{}" };
       sessionRef.current = s;
       nameRef.current = "";
+      whenRef.current = { from: "", to: "", hours: "" };
       setMode("idle");
-      setDrop({ status: "saving", merged: false, snapped, rough, vibes: [], kind: "home", name: "", dstatus: "" });
+      setDrop({ status: "saving", merged: false, snapped, rough, vibes: [], kind: "home", name: "", from: "", to: "", hours: "", dstatus: "" });
       setTrayOpen(true);
 
       haptic(30);
@@ -1200,13 +1205,14 @@ export default function LightsMap() {
 
 
   const sendDisplay = useCallback(
-    async (s, name) => {
-      if (name === s.sentName) return true;
+    async (s, name, when = {}) => {
+      const whenKey = JSON.stringify(name ? when : {});
+      if (name === s.sentName && whenKey === s.sentWhen) return true;
       const ok = await s.promise;
       if (!ok || !s.token) return false;
       if (sessionRef.current === s) setDrop((d) => d && { ...d, dstatus: "saving" });
       try {
-        const data = await api("PATCH", "/api/pins", { token: s.token, action: "display", name });
+        const data = await api("PATCH", "/api/pins", { token: s.token, action: "display", name, when: name ? when : undefined });
         lastWriteRef.current = Date.now();
         if (data.pin && data.pin.id !== s.pinId) {
           // Joined a display that was already there.
@@ -1217,6 +1223,7 @@ export default function LightsMap() {
         }
         s.merged = data.merged;
         s.sentName = name;
+        s.sentWhen = whenKey;
         if (data.display === "pending") rememberMyDisplay(s.pinId, name);
         else forgetMyDisplay(s.pinId);
         applyCells(data.cells);
@@ -1256,8 +1263,14 @@ export default function LightsMap() {
       say(checked.error || "Give it a name, like Sunny Acres Farm.", 4000);
       return false;
     }
+    const w = whenRef.current;
+    const when = checkWhen(w);
+    if (when.error) {
+      say(when.error, 4000);
+      return false;
+    }
     document.activeElement && document.activeElement.blur();
-    return sendDisplay(s, checked.name);
+    return sendDisplay(s, checked.name, { from: w.from, to: w.to, hours: w.hours.trim() });
   }, [sendDisplay, say]);
 
   const trayDone = useCallback(async () => {
@@ -1700,6 +1713,54 @@ export default function LightsMap() {
                   {drop.dstatus === "saving" ? "…" : drop.dstatus ? "Saved" : "Save"}
                 </button>
               </form>
+            )}
+            {drop.kind === "display" && !drop.showWhen && (
+              <button type="button" className="when-toggle" onClick={() => setDrop((d) => d && { ...d, showWhen: true })}>
+                🗓️ Add dates and hours <span>(optional)</span>
+              </button>
+            )}
+            {drop.kind === "display" && drop.showWhen && (
+              <div className="when-row" role="group" aria-label="When it runs, optional">
+                {[
+                  ["from", "First night"],
+                  ["to", "Last night"],
+                ].map(([key, label]) => (
+                  <label key={key} className="when-day">
+                    <span>{label}</span>
+                    <input
+                      type="date"
+                      value={drop[key]}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        whenRef.current = { ...whenRef.current, [key]: v };
+                        setDrop((d) => d && { ...d, [key]: v, dstatus: "" });
+                      }}
+                    />
+                  </label>
+                ))}
+                <label className="when-hours">
+                  <span>Hours</span>
+                  <input
+                    type="text"
+                    value={drop.hours}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      whenRef.current = { ...whenRef.current, hours: v };
+                      setDrop((d) => d && { ...d, hours: v, dstatus: "" });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        saveDisplay();
+                      }
+                    }}
+                    maxLength={HOURS_MAX}
+                    placeholder="6-10 PM"
+                    enterKeyHint="done"
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
             )}
             {drop.kind === "display" && (
               <p className="name-note" aria-live="polite">
