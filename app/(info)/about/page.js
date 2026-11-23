@@ -44,7 +44,7 @@ const FAQ = [
   ],
   [
     "What does HoHoHomes know about me?",
-    "Nothing that identifies you. There are no accounts and no IP addresses are stored. A house is just a spot on the map with tags and timestamps. A public display also keeps a scrambled, one-way code for each person who named or confirmed it, so it can tell the second person from the first; the code can't be turned back into an address. Shared links and previews point at an area about 1 km across and never show a count under 3 houses.",
+    "Nothing that identifies you. There are no accounts and no IP addresses are stored. A house is just a spot on the map with tags and timestamps. A public display also keeps a scrambled, one-way code for each person who named or confirmed it, so it can tell the second person from the first; the code can't be turned back into an address. Shared links and previews point at an area about 1 km across and never show a count under 3 houses. To see how many people visit and which features get used, the site runs Vercel Web Analytics, which uses no cookies, and Google Analytics, which does use cookies. Neither gets your exact location or anything you type.",
   ],
   [
     "When does the map reset?",
