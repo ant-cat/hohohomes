@@ -11,6 +11,7 @@ import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted, rememberMyDisplay, forgetMyDisplay } from "./popup";
 import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 import { track } from "../lib/analytics";
+import { rememberMine, dropMine, myCells, reconcileMine, withMine } from "./mine";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
@@ -36,6 +37,11 @@ const FILTERS = {
 const MAX_ZONE_LABELS = 24;
 const HUES = ["warm", "warm", "warm", "red", "gold", "green", "blue", "warm", "pink", "gold"];
 const SPARK_COLORS = ["#fff1c9", "#ff5a5f", "#ffc94d", "#5fe39a", "#7cc4ff", "#ff8fc7"];
+// Reports this close to a house count toward it (the server's rule too, in lib/pins.js).
+const DEDUPE_METERS = 20;
+// A house shown the moment you tap, before the server has saved it.
+const PENDING = "new-";
+const isPending = (id) => typeof id === "string" && id.startsWith(PENDING);
 
 // Fixed snowflake positions (the same on server and client).
 const SNOW = Array.from({ length: 16 }, (_, i) => ({
@@ -149,11 +155,16 @@ function makeStar(p) {
 }
 
 async function api(method, url, body) {
-  const res = await fetch(url, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Couldn't reach HoHoHomes. Check your connection and try again.");
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Our API sends { error: "text" }; Vercel's own errors send { error: { code, message } }.
@@ -161,6 +172,23 @@ async function api(method, url, body) {
     throw new Error(msg || (res.status === 429 ? "Slow down a little and try again." : "Could not save that, try again."));
   }
   return data;
+}
+
+// Houses, Showstoppers and displays in one cell, for the zoomed-out map.
+function summarize(pins) {
+  let lat = 0;
+  let lng = 0;
+  for (const p of pins) {
+    lat += p.lat;
+    lng += p.lng;
+  }
+  return {
+    n: pins.length,
+    s: pins.filter(isShowstopper).length,
+    d: pins.filter(isDisplay).length,
+    lat: lat / pins.length,
+    lng: lng / pins.length,
+  };
 }
 
 function loadMuted() {
@@ -190,6 +218,7 @@ export default function LightsMap() {
   const whenRef = useRef({ from: "", to: "", hours: "" }); // its season, also typed in the tray
   const openPopupRef = useRef(() => {});
   const cellsRef = useRef(new Map()); // cell -> { pins, at }: the houses downloaded so far
+  const pendingRef = useRef(new Map()); // id -> pin: houses you just tapped, still saving
   const summaryRef = useRef(null); // cell -> { n, s, lat, lng }: houses per cell, nationwide
   const dropAtRef = useRef(() => {});
 
@@ -303,9 +332,12 @@ export default function LightsMap() {
       if (!o) {
         const star = isDisplay(p);
         const el = star ? makeStar(p) : makeOrb(p);
+        el.dataset.id = id;
+        if (p.born) el.classList.add("born");
         el.addEventListener("click", (e) => {
           e.stopPropagation();
-          if (modeRef.current === "idle") openPopupRef.current(id);
+          // A house that's still saving has nothing to show yet.
+          if (modeRef.current === "idle" && !isPending(el.dataset.id)) openPopupRef.current(el.dataset.id);
         });
         const marker = new lib.Marker({ element: el, anchor: star ? "top" : "center", offset: star ? [0, -17] : [0, 0] })
           .setLngLat([p.lng, p.lat])
@@ -366,33 +398,22 @@ export default function LightsMap() {
     [syncOrbs]
   );
 
-  const flatPins = () => [...cellsRef.current.values()].flatMap((c) => c.pins);
+  // Everything on the map: the downloaded cells, plus houses you just tapped that are still saving.
+  const flatPins = () => [...[...cellsRef.current.values()].flatMap((c) => c.pins), ...pendingRef.current.values()];
 
-  // Takes cells fresh from the server (after a load or a save) and redraws.
+  // Takes cells from the server and redraws. A save's reply (saved) is the truth for its cells.
+  // A download may come from a short-lived cache, so your own recent houses are laid over it.
   const applyCells = useCallback(
-    (cells) => {
+    (cells, { saved = true } = {}) => {
       if (!cells) return;
+      if (saved) reconcileMine(cells);
+      else cells = withMine(cells);
       const now = Date.now();
       const summary = (summaryRef.current ||= {});
       for (const [cell, pins] of Object.entries(cells)) {
         cellsRef.current.set(cell, { pins, at: now });
-        if (!pins.length) {
-          delete summary[cell];
-          continue;
-        }
-        let lat = 0;
-        let lng = 0;
-        for (const p of pins) {
-          lat += p.lat;
-          lng += p.lng;
-        }
-        summary[cell] = {
-          n: pins.length,
-          s: pins.filter(isShowstopper).length,
-          d: pins.filter(isDisplay).length,
-          lat: lat / pins.length,
-          lng: lng / pins.length,
-        };
+        if (pins.length) summary[cell] = summarize(pins);
+        else delete summary[cell];
       }
       setPins(flatPins());
     },
@@ -422,6 +443,56 @@ export default function LightsMap() {
     return pin ? cellOf(pin.lat, pin.lng) : "";
   };
 
+  // Takes a house you just tapped off the map, fading its light out first.
+  const dropPending = useCallback(
+    (id, fade) => {
+      const o = orbsRef.current.get(id);
+      const gone = () => {
+        pendingRef.current.delete(id);
+        setPins(flatPins());
+      };
+      if (fade && o) {
+        o.el.classList.add("fading");
+        setTimeout(gone, 450);
+      } else gone();
+    },
+    [setPins]
+  );
+
+  // A saved house takes over the light of the one you tapped, so it doesn't blink.
+  const handOff = (fromId, toId) => {
+    const orbs = orbsRef.current;
+    const o = orbs.get(fromId);
+    if (!o) return;
+    orbs.delete(fromId);
+    if (orbs.has(toId)) {
+      o.marker.remove(); // an existing house already has its own light
+      return;
+    }
+    o.el.dataset.id = toId;
+    orbs.set(toId, o);
+  };
+
+  // Takes one house off the map right away (an undo). Returns a way to put it back.
+  const hideLocally = (id) => {
+    const before = new Map(cellsRef.current);
+    for (const [cell, v] of cellsRef.current) {
+      if (v.pins.some((p) => p.id === id)) {
+        cellsRef.current.set(cell, { ...v, pins: v.pins.filter((p) => p.id !== id) });
+      }
+    }
+    setPins(flatPins());
+    return () => {
+      for (const [cell, v] of before) {
+        const now = cellsRef.current.get(cell);
+        if (now && v.pins.some((p) => p.id === id) && !now.pins.some((p) => p.id === id)) {
+          cellsRef.current.set(cell, { ...now, pins: [...now.pins, v.pins.find((p) => p.id === id)] });
+        }
+      }
+      setPins(flatPins());
+    };
+  };
+
   // Downloads the houses of the cells in view (only cells the summary says have any).
   const loadingRef = useRef(false);
   const loadCells = useCallback(async () => {
@@ -448,7 +519,7 @@ export default function LightsMap() {
     loadingRef.current = true;
     try {
       const data = await (await fetch(`/api/pins?cells=${need.join(",")}`)).json();
-      applyCells(data.cells);
+      applyCells(data.cells, { saved: false });
     } catch {
     } finally {
       loadingRef.current = false;
@@ -470,6 +541,10 @@ export default function LightsMap() {
             else delete fresh[cell];
           }
         }
+      }
+      // Your own recent houses, even if the cached summary doesn't have them yet.
+      for (const [cell, pins] of Object.entries(myCells())) {
+        if (!fresh[cell]) fresh[cell] = summarize(pins);
       }
       summaryRef.current = fresh;
       setPins(flatPins());
@@ -1084,6 +1159,7 @@ export default function LightsMap() {
         s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
         applyCells(data.cells);
+        rememberMine(data.pin);
         if (sessionRef.current === s) {
           setDrop((d) => d && { ...d, merged: data.merged, snapped: Boolean(auto), adjusted: !auto, rough: false });
         }
@@ -1128,7 +1204,30 @@ export default function LightsMap() {
       nameRef.current = "";
       whenRef.current = { from: "", to: "", hours: "" };
       setMode("idle");
-      setDrop({ status: "saving", merged: false, snapped, rough, vibes: [], kind: "home", name: "", from: "", to: "", hours: "", dstatus: "" });
+
+      // Put the house on the map now; the save catches up in the background. Within 20 m of a
+      // house that's already here, the tap counts toward that one instead (as the server will).
+      const now = Date.now();
+      let near = null;
+      let best = DEDUPE_METERS;
+      for (const p of pinsRef.current) {
+        if (isPending(p.id)) continue;
+        const d = metersBetween(spot, p);
+        if (d < best) {
+          best = d;
+          near = p;
+        }
+      }
+      if (near) {
+        s.bumped = near.id;
+        patchPin(near.id, (p) => ({ ...p, c: (p.c || 1) + 1, u: now, l: now }));
+      } else {
+        const id = `${PENDING}${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        s.temp = id;
+        pendingRef.current.set(id, { id, lat: spot.lat, lng: spot.lng, c: 1, v: {}, t: now, u: now, l: now, born: 1 });
+        setPins(flatPins());
+      }
+      setDrop({ status: "saving", merged: Boolean(near), snapped, rough, vibes: [], kind: "home", name: "", from: "", to: "", hours: "", dstatus: "" });
       setTrayOpen(true);
 
       haptic(30);
@@ -1148,7 +1247,17 @@ export default function LightsMap() {
           s.pinId = data.pin.id;
           s.merged = data.merged;
           s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
+          if (s.temp) {
+            if (!s.undone) handOff(s.temp, data.pin.id);
+            pendingRef.current.delete(s.temp);
+          }
+          if (s.undone) {
+            s.saved = data; // taken back while saving: the undo tidies up
+            return true;
+          }
           applyCells(data.cells);
+          // Keep it on this device for a few minutes, in case a refresh brings back an older list.
+          rememberMine(data.pin);
           scoutAdded(s.pinId);
           track("add_house", { merged: data.merged ? "yes" : "no" });
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
@@ -1156,16 +1265,19 @@ export default function LightsMap() {
           return true;
         })
         .catch((err) => {
+          // It didn't save: let the light fade out, and say so.
+          if (s.temp) dropPending(s.temp, true);
+          if (s.bumped && !s.undone) patchPin(s.bumped, (p) => ({ ...p, c: Math.max(1, (p.c || 1) - 1) }));
           if (sessionRef.current === s) {
             sessionRef.current = null;
             setDrop(null);
             setTrayOpen(false);
           }
-          say(err.message, 4500);
+          if (!s.undone) say(err.message, 4500);
           return false;
         });
     },
-    [endSession, autoSnap, applyCells, pushVibes, say]
+    [endSession, autoSnap, applyCells, pushVibes, patchPin, dropPending, say]
   );
   dropAtRef.current = dropAt;
 
@@ -1177,6 +1289,21 @@ export default function LightsMap() {
     setDrop(null);
     setTrayOpen(false);
     haptic(15);
+    // Take it off the map right away, and put it back if the undo doesn't go through.
+    let restore = null;
+    if (!s.token) {
+      s.undone = true;
+      if (s.temp) dropPending(s.temp, true);
+      if (s.bumped) {
+        const id = s.bumped;
+        patchPin(id, (p) => ({ ...p, c: Math.max(1, (p.c || 1) - 1) }));
+        restore = () => patchPin(id, (p) => ({ ...p, c: (p.c || 1) + 1 }));
+      }
+    } else if (s.merged) {
+      const id = s.pinId;
+      patchPin(id, (p) => ({ ...p, c: Math.max(1, (p.c || 1) - 1) }));
+      restore = () => patchPin(id, (p) => ({ ...p, c: (p.c || 1) + 1 }));
+    } else restore = hideLocally(s.pinId);
     const ok = await s.promise;
     if (!ok) return;
     if (s.sentName) forgetMyDisplay(s.pinId);
@@ -1185,11 +1312,18 @@ export default function LightsMap() {
       lastWriteRef.current = Date.now();
       scoutUndone(s.pinId);
       applyCells(data.cells);
+      dropMine(s.pinId); // if it was someone else's house too, it stays, just not as yours
       say("Pin removed");
     } catch (err) {
+      if (restore) restore();
+      else if (s.saved) {
+        // It saved, but the undo didn't: show the house after all.
+        applyCells(s.saved.cells);
+        rememberMine(s.saved.pin);
+      }
       say(err.message);
     }
-  }, [applyCells, say]);
+  }, [applyCells, patchPin, dropPending, say]);
 
   const toggleVibe = useCallback(
     (id) => {
@@ -1231,6 +1365,7 @@ export default function LightsMap() {
         if (data.display === "pending") rememberMyDisplay(s.pinId, name);
         else forgetMyDisplay(s.pinId);
         applyCells(data.cells);
+        if (data.pin) rememberMine(data.pin);
         if (data.display === "confirmed") {
           haptic([20, 40, 20]);
           if (!mutedRef.current) chime(true);
@@ -1480,8 +1615,8 @@ export default function LightsMap() {
 
   let dropMsg = "";
   if (drop) {
-    if (drop.status === "saving") dropMsg = "Lighting it up…";
-    else if (drop.dstatus === "pending" || drop.dstatus === "same") dropMsg = "⭐ Display added";
+    // The house is already on the map while it saves, so the message doesn't wait for the server.
+    if (drop.dstatus === "pending" || drop.dstatus === "same") dropMsg = "⭐ Display added";
     else if (drop.dstatus === "confirmed") dropMsg = "⭐ Display confirmed!";
     else if (drop.dstatus === "seen" || drop.dstatus === "already") dropMsg = "⭐ Added your vote";
     else if (drop.merged) dropMsg = "Added your vote 🎄";
