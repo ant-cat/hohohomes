@@ -1,44 +1,43 @@
 import { ImageResponse } from "next/og";
 import { parseNear, parseZoom } from "../../../lib/region";
-import { areaSummary, areaTitle, nationalTotal } from "../../../lib/area";
+import { areaSummary, areaPill, nationalTotal, SHOW_COUNT_MIN, SHARE_HEADLINE, SHARE_SUBLINE } from "../../../lib/area";
 
 export const dynamic = "force-dynamic";
 
 // Fixed "fairy lights" scattered over the card (the same every time).
 const LIGHTS = Array.from({ length: 46 }, (_, i) => ({
   x: (i * 263 + 71) % 1200,
-  y: 300 + ((i * 137 + 29) % 300),
+  y: 390 + ((i * 137 + 29) % 230),
   r: 5 + ((i * 7) % 6),
   c: ["#fff1c9", "#fff1c9", "#ff6b6f", "#ffcf5c", "#6ff0a6", "#8ccfff", "#ff9bd0"][i % 7],
 }));
 const GLOWS = [
-  { x: 260, y: 470, r: 150 },
-  { x: 720, y: 420, r: 190 },
-  { x: 1030, y: 520, r: 120 },
+  { x: 260, y: 500, r: 150 },
+  { x: 720, y: 470, r: 180 },
+  { x: 1030, y: 540, r: 120 },
 ];
 
 // A four-point golden sparkle, drawn rather than an emoji so the card never depends on an emoji CDN.
 function Sparkle({ size }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" style={{ marginLeft: 18 }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ marginLeft: 12 }}>
       <path d="M12 0 C13 8 16 11 24 12 C16 13 13 16 12 24 C11 16 8 13 0 12 C8 11 11 8 12 0 Z" fill="#ffd36b" />
     </svg>
   );
 }
 
-// The picture shown when someone texts a HoHoHomes link. No emoji: plain text and shapes only.
+// The picture shown when someone texts a HoHoHomes link. It leads with what HoHoHomes is;
+// the place (and, once there are enough, the count) sits in a small pill. No emoji.
 export async function GET(req) {
   const params = new URL(req.url).searchParams;
   const near = parseNear(params.get("near"));
-  let headline = "Let’s go Christmas light hunting!";
-  let sub = "Add any you spot with one tap. No sign-up.";
+  let pill = "";
   try {
     if (near) {
-      headline = areaTitle(await areaSummary(near, parseZoom(params.get("z"))), { plain: true });
-      sub = "Open the map to see them twinkle";
+      pill = areaPill(await areaSummary(near, parseZoom(params.get("z"))));
     } else {
       const total = await nationalTotal();
-      if (total >= 10) sub = `${total.toLocaleString("en-US")} houses lit across the USA`;
+      if (total >= SHOW_COUNT_MIN) pill = `${total.toLocaleString("en-US")} homes lit across the USA`;
     }
   } catch {}
 
@@ -85,18 +84,47 @@ export async function GET(req) {
             }}
           />
         ))}
-        <div style={{ display: "flex", alignItems: "center", fontSize: 88, fontWeight: 800, letterSpacing: -1 }}>
+        <div style={{ display: "flex", alignItems: "center", fontSize: 44, fontWeight: 800, letterSpacing: -0.5 }}>
           HoHo<span style={{ color: "#ffc94d" }}>Homes</span>
-          <Sparkle size={64} />
+          <Sparkle size={34} />
         </div>
-        <div style={{ display: "flex", fontSize: 50, fontWeight: 700, marginTop: 18, maxWidth: 1050, lineHeight: 1.15 }}>
-          {headline}
+        <div
+          style={{
+            display: "flex",
+            fontSize: 84,
+            fontWeight: 800,
+            marginTop: 22,
+            maxWidth: 1000,
+            lineHeight: 1.04,
+            letterSpacing: -1.5,
+            textShadow: "0 2px 18px rgba(11,16,32,0.9)",
+          }}
+        >
+          {SHARE_HEADLINE}
         </div>
-        <div style={{ display: "flex", fontSize: 32, color: "#a9b0c6", marginTop: 16 }}>{sub}</div>
-        <div style={{ display: "flex", marginTop: "auto" }}>
-          <div style={{ display: "flex", fontSize: 30, color: "#ffc94d", padding: "8px 20px", borderRadius: 999, background: "rgba(11,16,32,0.8)", border: "1px solid rgba(255,201,77,0.35)" }}>
-            hohohomes.app
+        <div style={{ display: "flex", fontSize: 36, color: "#c9cfe0", marginTop: 18, textShadow: "0 2px 12px rgba(11,16,32,0.95)" }}>
+          {SHARE_SUBLINE}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "auto" }}>
+          <div
+            style={{
+              display: "flex",
+              fontSize: 32,
+              fontWeight: 600,
+              color: "#ffc94d",
+              padding: "10px 24px",
+              borderRadius: 999,
+              background: "rgba(11,16,32,0.82)",
+              border: "1px solid rgba(255,201,77,0.4)",
+            }}
+          >
+            {pill || "hohohomes.app"}
           </div>
+          {pill ? (
+            <div style={{ display: "flex", fontSize: 26, color: "#a9b0c6", textShadow: "0 2px 10px rgba(11,16,32,0.95)" }}>
+              hohohomes.app
+            </div>
+          ) : null}
         </div>
       </div>
     ),

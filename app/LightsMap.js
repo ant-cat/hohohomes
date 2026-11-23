@@ -1432,14 +1432,15 @@ export default function LightsMap() {
   const share = useCallback(async () => {
     const map = mapRef.current;
     let url = `${window.location.origin}/`;
-    let text = "🎄 Let’s go Christmas light hunting! Find lights near you, and add any you spot.";
+    // The link's own preview carries "Let's go Christmas light hunting", so the message reads like a person's.
+    let text = "Found a map of Christmas lights near you. Add any you spot!";
     if (map && map.getZoom() >= 10) {
       const c = map.getCenter();
       if (inUSA(c.lat, c.lng)) {
         // Keep the sender's zoom (10–15) so the link shows what they were looking at.
         const z = Math.max(10, Math.min(15, Math.floor(map.getZoom())));
         url += `?near=${snapNear(c.lat, c.lng)}${z !== 14 ? `&z=${z}` : ""}`;
-        text = "🎄 Christmas lights near here. Add any you spot!";
+        text = "Found a map of Christmas lights near us. Add any you spot!";
       }
     }
     haptic(10);
