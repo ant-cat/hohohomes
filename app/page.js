@@ -1,6 +1,6 @@
 import LightsMap from "./LightsMap";
 import { parseNear, parseZoom } from "../lib/region";
-import { areaSummary, areaTitle } from "../lib/area";
+import { areaSummary, areaTitle, SHARE_TITLE, SHARE_DESCRIPTION } from "../lib/area";
 import { webAppJsonLd } from "../lib/seo";
 import JsonLd from "./JsonLd";
 
@@ -17,14 +17,15 @@ export async function generateMetadata({ searchParams }) {
   try {
     title = areaTitle(await areaSummary(near, z));
   } catch {}
-  const description = "Open the map to see them twinkle, and add any you spot. No sign-up.";
-  const images = [{ url: `/api/og?${query}`, width: 1200, height: 630, alt: title }];
+  // The preview leads with what HoHoHomes is; the place goes on the card and in the page title.
+  const description = SHARE_DESCRIPTION;
+  const images = [{ url: `/api/og?${query}`, width: 1200, height: 630, alt: `HoHoHomes: ${title}` }];
   return {
     title: `${title} · HoHoHomes`,
     alternates: { canonical: "/" },
     description,
-    openGraph: { title, description, images, url: `/?${query}` },
-    twitter: { card: "summary_large_image", title, description, images },
+    openGraph: { title: SHARE_TITLE, description, images, url: `/?${query}` },
+    twitter: { card: "summary_large_image", title: SHARE_TITLE, description, images },
   };
 }
 
