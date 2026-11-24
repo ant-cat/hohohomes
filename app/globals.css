@@ -449,3 +449,21 @@ button { cursor: pointer; }
   .welcome-lights i, .welcome-lights i:nth-child(4n+1) { animation: twinkle-soft calc(var(--t, 2s) * 2) ease-in-out var(--d, 0s) infinite; }
   .welcome-snow { display: none; }
 }
+
+/* When we can't find you: why, and how to turn location on */
+.loc-help { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 74px);
+  z-index: 9; width: min(420px, calc(100% - 24px)); border-radius: 18px; padding: 12px 12px 12px 14px;
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 14px;
+  animation: drop-in .32s cubic-bezier(.2, .9, .3, 1.25); }
+.loc-pin { font-size: 22px; line-height: 1; padding-top: 1px; animation: pin-bob 1.6s ease-in-out .3s 2; }
+.loc-words { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.loc-words b { font-weight: 700; }
+.loc-words span { color: var(--muted); line-height: 1.4; }
+.loc-btns { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+.loc-btns button { min-height: 36px; border: 0; border-radius: 999px; padding: 8px 14px; font-weight: 700;
+  font-size: 14px; background: var(--gold-soft); color: var(--gold); }
+.loc-btns button.soft { background: none; color: var(--muted); }
+.loc-btns button:active { transform: translateY(1px); }
+@keyframes drop-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes pin-bob { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-4px); } 60% { transform: translateY(0); } 75% { transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .loc-help, .loc-pin { animation: none; } }
