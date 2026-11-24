@@ -12,6 +12,7 @@ import { popupNode, isFresh, rememberConfirmed, rememberVoted, rememberMyDisplay
 import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 import { track } from "../lib/analytics";
 import { rememberMine, dropMine, myCells, reconcileMine, withMine } from "./mine";
+import { locate, locateTrouble } from "./locate";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
@@ -229,6 +230,7 @@ export default function LightsMap() {
   const filterRef = useRef("all");
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
+  const [locHelp, setLocHelp] = useState(null); // { title, fix, action, again } when finding you didn't work
 
   // Keep the bottom dock above the on-screen keyboard while typing an address.
   useEffect(() => {
@@ -281,6 +283,14 @@ export default function LightsMap() {
   const say = useCallback((msg, ms = 3200) => {
     setToast(msg);
     if (msg) setTimeout(() => setToast((t) => (t === msg ? "" : t)), ms);
+  }, []);
+
+  // When we can't find you: say why and how to fix it, and stay up long enough to read.
+  const explainLocate = useCallback((err, again) => {
+    const help = { ...locateTrouble(err), again };
+    setToast("");
+    setLocHelp(help);
+    setTimeout(() => setLocHelp((h) => (h === help ? null : h)), 15000);
   }, []);
 
   // Twinkling house lights and public-display stars, as DOM markers, only for what's in view.
@@ -1453,6 +1463,11 @@ export default function LightsMap() {
     if (metersBetween(spot, s.lngLat) > 1) moveSession(s, { lng: spot.lng, lat: spot.lat }, false);
   }, [clearAdjust, moveSession]);
 
+  // Once a house is placed, the location help has done its job.
+  useEffect(() => {
+    if (drop) setLocHelp(null);
+  }, [drop]);
+
   // The toast lingers while you use it, then tidies itself away.
   useEffect(() => {
     if (!drop || mode === "adjusting") return;
@@ -1481,31 +1496,36 @@ export default function LightsMap() {
 
   const iSeeLights = useCallback(() => {
     primeAudio();
+    setLocHelp(null);
     if (!navigator.geolocation) return startPicking("Tap the map where the lights are.");
     setMode("locating");
-    navigator.geolocation.getCurrentPosition(
+    locate(
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
         if (!inUSA(lat, lng)) return startPicking("HoHoHomes covers the US for now. Tap the map where the lights are.");
         dropAt({ lng, lat }, { snap: true, rough: accuracy > 60 });
       },
-      () => startPicking("Couldn't get your location. Tap the map where the lights are."),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+      (err) => {
+        // You can still add the house by tapping it on the map.
+        startPicking();
+        explainLocate(err, "add");
+      }
     );
-  }, [dropAt, startPicking]);
+  }, [dropAt, startPicking, explainLocate]);
 
   const nearMe = useCallback(() => {
     setHint(false);
-    if (!navigator.geolocation) return say("Location isn't available on this device.");
-    navigator.geolocation.getCurrentPosition(
+    setLocHelp(null);
+    locate(
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
       (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords;
         mapRef.current && mapRef.current.flyTo({ center: [lng, lat], zoom: 14.5, speed: 1.6 });
       },
-      () => say("Couldn't get your location."),
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      (err) => explainLocate(err, "near")
     );
-  }, [say]);
+  }, [explainLocate]);
 
   const search = useCallback(
     async (e) => {
@@ -1706,9 +1726,34 @@ export default function LightsMap() {
         </div>
       </div>
 
-      {toast && (
+      {toast && !locHelp && (
         <div className="toast glass" role="status">
           {toast}
+        </div>
+      )}
+
+      {locHelp && (
+        <div className="loc-help glass" role="alert">
+          <span className="loc-pin" aria-hidden="true">📍</span>
+          <div className="loc-words">
+            <b>{locHelp.title}</b>
+            <span>{locHelp.fix}</span>
+          </div>
+          <div className="loc-btns">
+            {locHelp.action === "reload" && (
+              <button type="button" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            )}
+            {locHelp.action === "retry" && (
+              <button type="button" onClick={locHelp.again === "add" ? iSeeLights : nearMe}>
+                Try again
+              </button>
+            )}
+            <button type="button" className="soft" onClick={() => setLocHelp(null)}>
+              OK
+            </button>
+          </div>
         </div>
       )}
 
