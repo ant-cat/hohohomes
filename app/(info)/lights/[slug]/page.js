@@ -151,7 +151,7 @@ export default async function City({ params }) {
       <h2>Seeing the lights in {m.city} tonight</h2>
       <ul>
         <li>The map shows glowing Hot Zones where houses with lights are clustered. Tap one to fly in.</li>
-        <li>The brightest lights were confirmed lit in the last 72 hours. Houses nobody has checked lately dim.</li>
+        <li>Every house stays lit, and the more people vote for one, the brighter it shines.</li>
         <li>Tap 🤩 for Showstoppers only, the displays people say are worth the drive.</li>
         <li>Tap ⭐ for public displays only: farms, parks, businesses and churches, each marked with a gold star.</li>
         <li>Most displays are on from dusk until about 10 PM. Park where it&apos;s allowed and enjoy them from the street.</li>

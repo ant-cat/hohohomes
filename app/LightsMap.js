@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { VIBES, WOW, isShowstopper } from "../lib/vibes";
+import { VIBES, WOW, isShowstopper, glowFor } from "../lib/vibes";
 import { isDisplay, checkName, checkWhen, displayPhase, NAME_MAX, HOURS_MAX } from "../lib/displays";
 import ScoutBadges from "./ScoutBadges";
 import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
@@ -114,14 +114,13 @@ function hash(s) {
 
 // Houses for the glows and sparks. Public displays draw as their own stars instead.
 function toGeoJSON(pins, filter = "all") {
-  const now = Date.now();
   pins = pins.filter((p) => !isDisplay(p) && FILTERS[filter].keepHouse(p));
   return {
     type: "FeatureCollection",
     features: pins.map((p) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [p.lng, p.lat] },
-      properties: { id: p.id, fresh: isFresh(p, now) ? 1 : 0, s: isShowstopper(p) ? 1 : 0, h: hash(p.id) % SPARK_COLORS.length },
+      properties: { id: p.id, b: Math.round(glowFor(p) * 100) / 100, s: isShowstopper(p) ? 1 : 0, h: hash(p.id) % SPARK_COLORS.length },
     })),
   };
 }
@@ -359,9 +358,11 @@ export default function LightsMap() {
         o.lng = p.lng;
         o.lat = p.lat;
       }
-      // A display with dates is lit through its season, and looks lighter before and after it.
+      // Houses are always lit, brighter with every vote. A display with dates is lit through its
+      // season, and looks lighter before and after it.
       const phase = o.star ? displayPhase(p.d, now) : "";
-      o.el.classList.toggle("stale", phase ? false : !isFresh(p, now));
+      if (!o.star) o.el.style.setProperty("--b", glowFor(p).toFixed(2));
+      o.el.classList.toggle("stale", o.star && !phase && !isFresh(p, now));
       o.el.classList.toggle("soon", phase === "soon" || phase === "over");
       o.el.classList.toggle("show", isShowstopper(p));
     }
@@ -1022,13 +1023,13 @@ export default function LightsMap() {
           cluster: true,
           clusterMaxZoom: CLUSTER_MAX_ZOOM,
           clusterRadius: 44,
-          clusterProperties: { fresh: ["+", ["get", "fresh"]], shows: ["+", ["get", "s"]] },
+          clusterProperties: { b: ["+", ["get", "b"]], shows: ["+", ["get", "s"]] },
         });
 
         const clustered = ["has", "point_count"];
         const single = ["!", ["has", "point_count"]];
-        // How much of a zone was confirmed lit lately: brighter zones are livelier.
-        const liveliness = ["/", ["get", "fresh"], ["get", "point_count"]];
+        // Every zone is lit; the more its houses have been voted up, the brighter it glows.
+        const liveliness = ["/", ["get", "b"], ["get", "point_count"]];
         const zoneSize = ["interpolate", ["linear"], ["get", "point_count"], 2, 26, 10, 40, 50, 60, 250, 84];
 
         map.addLayer({
@@ -1042,7 +1043,7 @@ export default function LightsMap() {
             "circle-radius": zoneSize,
             "circle-color": "#ffb23f",
             "circle-blur": 1,
-            "circle-opacity": ["+", 0.32, ["*", 0.45, liveliness]],
+            "circle-opacity": ["+", 0.5, ["*", 0.4, liveliness]],
           },
         });
         map.addLayer({
@@ -1056,9 +1057,11 @@ export default function LightsMap() {
             "circle-radius": ["*", 0.42, zoneSize],
             "circle-color": "#ffe7a8",
             "circle-blur": 0.9,
-            "circle-opacity": ["+", 0.4, ["*", 0.45, liveliness]],
+            "circle-opacity": ["+", 0.6, ["*", 0.35, liveliness]],
           },
         });
+        // A single house's glow grows with its votes (b runs 0 to 1).
+        const grow = (k) => ["+", 1, ["*", k, ["get", "b"]]];
         const sparkColor = ["match", ["get", "h"], ...SPARK_COLORS.slice(1).flatMap((c, i) => [i + 1, c]), SPARK_COLORS[0]];
         map.addLayer({
           id: "spark-glow",
@@ -1068,10 +1071,10 @@ export default function LightsMap() {
           minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 13, 12],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, ["*", 6, grow(0.6)], 13, ["*", 12, grow(0.6)]],
             "circle-color": sparkColor,
             "circle-blur": 1,
-            "circle-opacity": ["case", ["==", ["get", "fresh"], 1], 0.55, 0.15],
+            "circle-opacity": ["+", 0.45, ["*", 0.4, ["get", "b"]]],
           },
         });
         map.addLayer({
@@ -1082,9 +1085,9 @@ export default function LightsMap() {
           minzoom: LOAD_ZOOM,
           maxzoom: ORB_ZOOM,
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 1.6, 13, 3],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, ["*", 1.6, grow(0.4)], 13, ["*", 3, grow(0.4)]],
             "circle-color": "#fff8e6",
-            "circle-opacity": ["case", ["==", ["get", "fresh"], 1], 0.95, 0.35],
+            "circle-opacity": ["+", 0.85, ["*", 0.15, ["get", "b"]]],
           },
         });
 
@@ -1137,7 +1140,7 @@ export default function LightsMap() {
     };
   }, [setPins, syncOrbs, syncZones, zoomIntoZone, loadSummary, loadCells]);
 
-  // Dim houses as they go stale, and pick up other people's houses now and then.
+  // Keep displays' seasons current, and pick up other people's houses and votes now and then.
   useEffect(() => {
     const tick = setInterval(() => setPins(pinsRef.current), 60 * 1000);
     const refresh = setInterval(() => {
