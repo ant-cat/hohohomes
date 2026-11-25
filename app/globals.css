@@ -232,9 +232,13 @@ button { cursor: pointer; }
 .orb.h-green { --c: #6ff0a6; --g: rgba(60, 220, 130, 0.45); }
 .orb.h-blue { --c: #8ccfff; --g: rgba(90, 170, 255, 0.5); }
 .orb.h-pink { --c: #ff9bd0; --g: rgba(255, 110, 190, 0.45); }
-.orb i { width: 12px; height: 12px; border-radius: 50%;
-  background: radial-gradient(circle at 38% 35%, #fff 0 22%, var(--c) 60%);
-  box-shadow: 0 0 6px 2px var(--c), 0 0 18px 7px var(--g);
+/* Every house is lit. --b (0 to 1, set from its votes) makes the light bigger and its glow wider. */
+.orb i { width: calc(10px + 6px * var(--b, 0)); height: calc(10px + 6px * var(--b, 0)); border-radius: 50%;
+  background: radial-gradient(circle at 38% 35%, #fff 0 calc(22% + 12% * var(--b, 0)), var(--c) 60%);
+  box-shadow: 0 0 calc(5px + 7px * var(--b, 0)) calc(2px + 2px * var(--b, 0)) var(--c),
+    0 0 calc(14px + 30px * var(--b, 0)) calc(5px + 13px * var(--b, 0)) var(--g);
+  filter: brightness(calc(1 + .2 * var(--b, 0)));
+  transition: width .6s, height .6s, box-shadow .6s, filter .6s;
   animation: twinkle var(--t, 2.4s) ease-in-out var(--d, 0s) infinite; will-change: transform, opacity; }
 @keyframes twinkle {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -256,17 +260,15 @@ button { cursor: pointer; }
 @keyframes unlit { to { opacity: 0; transform: scale(.3); } }
 /* Showstoppers: bigger, brighter, with a slow golden starburst. Everyone else keeps their twinkle. */
 .orb.show { z-index: 2; width: 44px; height: 44px; }
-.orb.show i { width: 16px; height: 16px; background: radial-gradient(circle at 38% 35%, #fff 0 28%, #ffd76a 62%);
-  box-shadow: 0 0 8px 3px #ffd76a, 0 0 26px 12px rgba(255, 190, 60, .55); }
+.orb.show i { width: calc(13px + 6px * var(--b, 0)); height: calc(13px + 6px * var(--b, 0));
+  background: radial-gradient(circle at 38% 35%, #fff 0 28%, #ffd76a 62%);
+  box-shadow: 0 0 calc(6px + 4px * var(--b, 0)) 3px #ffd76a, 0 0 calc(20px + 14px * var(--b, 0)) calc(9px + 6px * var(--b, 0)) rgba(255, 190, 60, .55); }
 .orb.show::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; pointer-events: none;
   background: repeating-conic-gradient(from 0deg, rgba(255, 220, 130, .6) 0deg 5deg, transparent 5deg 30deg);
   -webkit-mask: radial-gradient(circle, transparent 30%, #000 34%, rgba(0, 0, 0, .6) 55%, transparent 70%);
   mask: radial-gradient(circle, transparent 30%, #000 34%, rgba(0, 0, 0, .6) 55%, transparent 70%);
   animation: starburst 12s linear infinite; }
 @keyframes starburst { to { transform: rotate(360deg); } }
-/* Not confirmed lit in 72 hours */
-.orb.stale::before { opacity: .35; animation: none; }
-.orb.stale i { animation: none; opacity: .32; filter: saturate(.35); box-shadow: 0 0 4px 1px var(--g); }
 /* Public displays: a gold star that glints, with its name once you're close enough to read it */
 .orb.star { z-index: 3; width: auto; min-width: 34px; height: auto; display: flex; flex-direction: column;
   align-items: center; gap: 1px; }

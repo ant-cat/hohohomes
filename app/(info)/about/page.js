@@ -28,7 +28,7 @@ const FAQ = [
   ],
   [
     "How do I know the lights are on tonight?",
-    "Anyone passing by can tap \"Lit Tonight\" on a house. Houses nobody has confirmed in the last 72 hours dim on the map, so the brightest lights are the freshest.",
+    "Anyone passing by can tap \"Lit Tonight\" on a house, and each card says when someone last did. Every house stays lit on the map, and each Lit Tonight or Worth the Drive vote makes it shine a little brighter.",
   ],
   [
     "What is a Showstopper?",
