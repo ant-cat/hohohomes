@@ -1,12 +1,12 @@
 import { isAdmin, adminKeyFrom } from "../../../../lib/admin";
 import { seedDisplays, inUSA } from "../../../../lib/pins";
 import { checkName } from "../../../../lib/displays";
-import { SEEDS } from "../../../../lib/seeds/jacksonville-2026";
+import { SEEDS } from "../../../../lib/seeds";
 import { json } from "../../../../lib/http";
 
 export const dynamic = "force-dynamic";
 
-// Owner only: POST /api/admin/seed?set=jacksonville-2026 with the x-admin-key header puts a known
+// Owner only: POST /api/admin/seed?set=<name> (see lib/seeds) with the x-admin-key header puts a known
 // list of public displays on the map, already confirmed. Running it again changes nothing new.
 export async function POST(req) {
   if (!isAdmin(adminKeyFrom(req))) return json({ error: "Not allowed." }, 403);
