@@ -5,7 +5,7 @@ import { VIBES, WOW, isShowstopper } from "../lib/vibes";
 import { isDisplay, checkName, checkWhen, displayPhase, NAME_MAX, HOURS_MAX } from "../lib/displays";
 import ScoutBadges from "./ScoutBadges";
 import { scoutAdded, scoutUndone, scoutMoved, scoutLit, scoutWow, scoutTagged } from "./scout";
-import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom } from "../lib/region";
+import { inUSA, cellOf, cellsInBounds, USA_CENTER, LOWER_48, snapNear, parseNear, parseZoom, groupAreas } from "../lib/region";
 import { snapToBuilding, metersBetween, placeName } from "./geo";
 import { primeAudio, chime, haptic, lightUp } from "./fx";
 import { popupNode, isFresh, rememberConfirmed, rememberVoted, rememberMyDisplay, forgetMyDisplay } from "./popup";
@@ -15,8 +15,8 @@ import { rememberMine, dropMine, myCells, reconcileMine, withMine } from "./mine
 import { locate, locateTrouble } from "./locate";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
-// Below LOAD_ZOOM the map shows one glow per 1° cell from the national summary; from there in,
-// it downloads the houses of the cells in view.
+// Below LOAD_ZOOM the map shows one glow per area (nearby 1° cells from the national summary,
+// see groupAreas); from there in, it downloads the houses of the cells in view.
 const LOAD_ZOOM = 7.5;
 const MAX_LOAD_CELLS = 40;
 const CELL_STALE_MS = 2 * 60 * 1000;
@@ -392,15 +392,27 @@ export default function LightsMap() {
       const sum = map && map.getSource("summary");
       if (sum) {
         const n = (v) => (filter === "show" ? v.s : filter === "disp" ? v.d || 0 : v.n);
+        const cells = Object.entries(summary)
+          .filter(([, v]) => n(v) > 0)
+          .map(([cell, v]) => ({ cell, n: n(v), s: v.s, d: v.d || 0, lat: v.lat, lng: v.lng }));
         sum.setData({
           type: "FeatureCollection",
-          features: Object.entries(summary)
-            .filter(([, v]) => n(v) > 0)
-            .map(([cell, v]) => ({
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [v.lng, v.lat] },
-              properties: { cell, n: n(v), s: v.s, d: v.d || 0 },
-            })),
+          features: groupAreas(cells).map((a) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [a.lng, a.lat] },
+            properties: {
+              cell: a.cell,
+              n: a.n,
+              s: a.s,
+              d: a.d,
+              nameLat: a.name.lat,
+              nameLng: a.name.lng,
+              w: a.box[0],
+              so: a.box[1],
+              e: a.box[2],
+              no: a.box[3],
+            },
+          })),
         });
       }
       syncOrbs();
@@ -759,20 +771,30 @@ export default function LightsMap() {
     map.flyTo({ center, zoom, speed: 1.1, curve: 1.5, essential: true });
   }, []);
 
-  // Tapping a national glow: a merged one zooms a step until it splits; a single city flies in.
+  // Tapping a national glow flies into that area: close enough to see its houses, wide enough
+  // to take in all of them when it spans a few cells.
   const flyToRegionRef = useRef(() => {});
-  flyToRegionRef.current = async (f) => {
+  flyToRegionRef.current = (f) => {
     const map = mapRef.current;
     if (!map) return;
-    const center = f.geometry.coordinates;
-    const id = f.properties.cluster_id;
-    if (id !== undefined) {
-      try {
-        const z = await map.getSource("summary").getClusterExpansionZoom(id);
-        if (z < LOAD_ZOOM - 1) return map.easeTo({ center, zoom: z + 0.3, duration: 900, essential: true });
-      } catch {}
+    const { w, so, e, no } = f.properties;
+    let center = f.geometry.coordinates;
+    let zoom = 10.5;
+    if ([w, so, e, no].every(Number.isFinite) && (e - w > 0.05 || no - so > 0.05)) {
+      const pad = 60;
+      const cam = map.cameraForBounds(
+        [
+          [w, so],
+          [e, no],
+        ],
+        { padding: { top: pad, bottom: pad + 120, left: pad, right: pad }, maxZoom: 10.5 }
+      );
+      if (cam) {
+        center = cam.center;
+        zoom = Math.max(LOAD_ZOOM + 0.5, cam.zoom);
+      }
     }
-    map.flyTo({ center, zoom: 10.5, speed: 1.4, essential: true });
+    map.flyTo({ center, zoom, speed: 1.4, essential: true });
   };
 
   // Floating "San Marco • 14 houses" labels on the Hot Zones in view.
@@ -788,8 +810,8 @@ export default function LightsMap() {
         .queryRenderedFeatures({ layers: ["region-halo"] })
         .sort((a, b) => b.properties.n - a.properties.n);
       for (const f of feats) {
-        const id = f.properties.cluster_id;
-        const key = id !== undefined ? `rc:${id}:${f.properties.n}` : `r:${f.properties.cell}:${f.properties.n}:${f.properties.s}:${f.properties.d}`;
+        const p = f.properties;
+        const key = `r:${p.cell}:${p.n}:${p.s}:${p.d}:${f.geometry.coordinates.join(",")}`;
         if (!want.has(key) && want.size < MAX_ZONE_LABELS) want.set(key, f);
       }
     } else if (map.getZoom() < ORB_ZOOM && map.getLayer("zone-halo")) {
@@ -801,19 +823,26 @@ export default function LightsMap() {
         if (!want.has(key) && want.size < MAX_ZONE_LABELS) want.set(key, f);
       }
     }
-    // Biggest zones get labels first; skip any that would sit on top of another.
+    // Biggest zones get labels first. A label that would sit on top of another tries just above,
+    // then just below, its glow (zoomed far out, Houston and Jacksonville share a row), and is
+    // skipped if neither is free.
     // Near a screen edge a label hangs inward so it isn't cut off; overlap checks use where it really sits.
     const placed = [];
     const anchors = new Map();
+    const shifts = new Map();
     const w = map.getContainer().clientWidth;
+    const LIFT = 34;
     for (const [key, f] of [...want]) {
       const pt = map.project(f.geometry.coordinates);
       const anchor = pt.x < 90 ? "left" : pt.x > w - 90 ? "right" : "center";
       const cx = pt.x + (anchor === "left" ? 75 : anchor === "right" ? -75 : 0);
-      if (placed.some((q) => Math.abs(q.x - cx) < 160 && Math.abs(q.y - pt.y) < 34)) want.delete(key);
+      const free = (dy) => !placed.some((q) => Math.abs(q.x - cx) < 160 && Math.abs(q.y - (pt.y + dy)) < 34);
+      const dy = [0, -LIFT, LIFT].find(free);
+      if (dy === undefined) want.delete(key);
       else {
-        placed.push({ x: cx, y: pt.y });
+        placed.push({ x: cx, y: pt.y + dy });
         anchors.set(key, anchor);
+        shifts.set(key, dy);
       }
     }
     for (const [key, z] of labels) {
@@ -824,7 +853,14 @@ export default function LightsMap() {
     }
     const precision = national ? 1 : map.getZoom() < 11 ? 2 : 3;
     for (const [key, f] of want) {
-      if (labels.has(key)) continue;
+      const dy = shifts.get(key) || 0;
+      if (labels.has(key)) {
+        const z = labels.get(key);
+        if (z.anchor !== anchors.get(key) || z.dy !== dy) {
+          z.marker.remove();
+          labels.delete(key);
+        } else continue;
+      }
       const n = national ? f.properties.n : f.properties.point_count;
       const [lng, lat] = f.geometry.coordinates;
       const el = document.createElement("button");
@@ -847,19 +883,14 @@ export default function LightsMap() {
         if (national) flyToRegionRef.current(f);
         else zoomIntoZone(f.properties.cluster_id, [lng, lat]);
       });
-      const marker = new lib.Marker({ element: el, anchor: anchors.get(key) || "center" }).setLngLat([lng, lat]).addTo(map);
-      labels.set(key, { marker });
-      // A merged glow is named after its biggest city.
-      const nameAt =
-        national && f.properties.cluster_id !== undefined
-          ? map
-              .getSource("summary")
-              .getClusterLeaves(f.properties.cluster_id, 200, 0)
-              .then((leaves) => {
-                const top = leaves.reduce((a, b) => (b.properties.n > a.properties.n ? b : a));
-                return placeName(top.geometry.coordinates[0], top.geometry.coordinates[1], precision, "city");
-              })
-          : placeName(lng, lat, precision, national ? "city" : "hood");
+      const marker = new lib.Marker({ element: el, anchor: anchors.get(key) || "center", offset: [0, dy] })
+        .setLngLat([lng, lat])
+        .addTo(map);
+      labels.set(key, { marker, anchor: anchors.get(key), dy });
+      // An area is named after its busiest cell, so a metro that spans two cells keeps its city's name.
+      const nameAt = national
+        ? placeName(f.properties.nameLng ?? lng, f.properties.nameLat ?? lat, precision, "city")
+        : placeName(lng, lat, precision, "hood");
       nameAt
         .then((place) => {
           if (place && el.isConnected) {
@@ -952,16 +983,12 @@ export default function LightsMap() {
           } catch {}
         }
 
-        // The national view: one glow per cell with houses.
-        // Zoomed far out, nearby cells merge into one glow (a city that straddles a cell line, or a
-        // region), with their counts added up.
+        // The national view: one glow per area with houses (see groupAreas). Areas are grouped by
+        // distance on the ground, never merged by screen distance, so each keeps its own count and
+        // place even with the whole country in view.
         map.addSource("summary", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
-          cluster: true,
-          clusterRadius: 45,
-          clusterMaxZoom: 6,
-          clusterProperties: { n: ["+", ["get", "n"]], s: ["+", ["get", "s"]], d: ["+", ["get", "d"]] },
         });
         const regionSize = ["interpolate", ["linear"], ["get", "n"], 1, 12, 10, 20, 100, 34, 1000, 54];
         map.addLayer({
