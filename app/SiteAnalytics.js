@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Analytics } from "@vercel/analytics/next";
 import { GoogleTagManager } from "@next/third-parties/google";
 
@@ -20,8 +21,10 @@ function dropAdmin(event) {
 
 export default function SiteAnalytics() {
   const [on, setOn] = useState(false);
+  // The owner's admin page is never counted either.
+  const adminPage = (usePathname() || "").startsWith("/admin");
   useEffect(() => setOn(!ADMIN_LOAD), []);
-  if (!on) return null;
+  if (!on || adminPage) return null;
   return (
     <>
       <GoogleTagManager gtmId={GTM_ID} />
