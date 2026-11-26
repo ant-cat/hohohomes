@@ -5,7 +5,7 @@ import {
   SITE_URL,
   METROS,
   metroCounts,
-  isIndexable,
+  shouldNoindex,
   mapLink,
   cityUrl,
   stateName,
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }) {
     description,
     alternates: { canonical: cityUrl(m) },
     // A city with only a handful of houses stays out of search results until it fills in.
-    robots: isIndexable(counts, m.slug) ? undefined : { index: false, follow: true },
+    robots: shouldNoindex(counts, m.slug) ? { index: false, follow: true } : undefined,
     openGraph: { title: ogTitle, description, url: cityUrl(m), images },
     twitter: { card: "summary_large_image", title: ogTitle, description, images },
   };
