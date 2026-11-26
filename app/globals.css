@@ -172,6 +172,12 @@ button { cursor: pointer; }
 .tx { order: 1; width: 36px; height: 32px; border: 0; background: none; color: var(--muted); font-size: 14px; padding: 0; }
 .tbtn { order: 2; flex: 1 1 40%; min-height: 44px; border: 0; background: var(--gold-soft); color: var(--gold);
   font-weight: 700; font-size: 14px; border-radius: 12px; padding: 10px; white-space: nowrap; }
+/* "Block lit": two lines, so it reads at a glance from the passenger seat */
+.block-toast .block-msg { white-space: normal; display: flex; flex-direction: column; gap: 1px; }
+.block-toast .block-msg b { color: var(--gold); font-size: 15px; font-weight: 800; }
+.block-where { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block-toast.saved { animation: up .22s cubic-bezier(.2, .9, .3, 1.15), blocklit 1.1s ease-out .1s; }
+@keyframes blocklit { 0% { box-shadow: 0 0 0 0 rgba(255, 201, 77, .55); } 100% { box-shadow: 0 0 0 16px rgba(255, 201, 77, 0); } }
 .tray { border-radius: 22px; padding: 12px; background: var(--glass-strong);
   animation: up .26s cubic-bezier(.2, .9, .3, 1.15); }
 .tray-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px;
@@ -371,6 +377,8 @@ button { cursor: pointer; }
 .rm-btn { display: block; width: 100%; margin-top: 10px; padding: 9px 10px; border-radius: 10px; font-size: 13px;
   font-weight: 700; color: #ff8a8a; background: rgba(232, 57, 74, .12); border: 1px solid rgba(232, 57, 74, .4); }
 .rm-btn:disabled { opacity: .6; }
+.pop-title.block { font-weight: 800; text-shadow: 0 0 12px rgba(255, 201, 77, .45); }
+.block-pin { display: block; width: 100%; margin-top: 12px; }
 .pop-dir { display: inline-block; margin-top: 10px; color: var(--gold); font-weight: 700; text-decoration: none; }
 
 .maperror { position: absolute; top: 50%; left: 24px; right: 24px; transform: translateY(-50%); z-index: 4;
@@ -383,6 +391,7 @@ button { cursor: pointer; }
   .kind-display[aria-checked="true"] .kind-star, .name-row, .when-row { animation: none; }
   .disp-toggle .glint { display: none; }
   .lightup i { animation-duration: .6s; }
+  .block-toast.saved { animation: none; }
   .tray, .drop-toast, .banner, .hint, .chip[aria-pressed="true"], .dock, .primary .tree { animation: none; }
   .dock-lights i { animation: none; }
   .stack { transition: none; }

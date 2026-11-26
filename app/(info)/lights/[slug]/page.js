@@ -159,7 +159,7 @@ export default async function City({ params }) {
 
       <h2>Spotted lights in {m.city}?</h2>
       <p>
-        Tap &quot;I see lights here&quot; on the map and the house lights up for everyone. No account, nothing to
+        Tap &quot;I see lights here&quot; on the map, even driving by, and the block lights up for everyone. No account, nothing to
         install, and only the spot on the map is kept. <a href="/about">How HoHoHomes works</a>.
       </p>
 

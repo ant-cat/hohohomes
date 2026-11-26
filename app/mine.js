@@ -121,3 +121,89 @@ export function withMine(cells) {
   }
   return out;
 }
+
+// --- Lit blocks you just tapped -------------------------------------------------
+// The same idea for blocks: your recent taps survive a cached download for a few minutes.
+
+const BKEY = "hh:mineBlocks";
+
+function loadBlocks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BKEY) || "null");
+    if (raw && typeof raw === "object" && raw.blocks && raw.gone) return raw;
+  } catch {}
+  return { blocks: {}, gone: {} };
+}
+
+function saveBlocks(data) {
+  try {
+    if (!Object.keys(data.blocks).length && !Object.keys(data.gone).length) localStorage.removeItem(BKEY);
+    else localStorage.setItem(BKEY, JSON.stringify(data));
+  } catch {}
+}
+
+function freshBlocks() {
+  const data = loadBlocks();
+  const now = Date.now();
+  for (const [id, v] of Object.entries(data.blocks)) if (!v || !v.block || !(now - v.at < KEEP_MS)) delete data.blocks[id];
+  for (const [id, at] of Object.entries(data.gone)) if (!(now - at < KEEP_MS)) delete data.gone[id];
+  return data;
+}
+
+// cell: the block's cell, as the server filed it.
+export function rememberMyBlock(cell, block) {
+  if (!block || !block.id || !cell) return;
+  const data = freshBlocks();
+  data.blocks[block.id] = { block, cell, at: Date.now() };
+  delete data.gone[block.id];
+  saveBlocks(data);
+}
+
+export function dropMyBlock(id) {
+  const data = freshBlocks();
+  delete data.blocks[id];
+  saveBlocks(data);
+}
+
+// Cells holding one of your recent blocks, for the national summary.
+export function myBlockCells() {
+  const out = {};
+  for (const v of Object.values(freshBlocks().blocks)) (out[v.cell] ||= []).push(v.block);
+  return out;
+}
+
+// A save's reply is the truth for its cells: anything of ours missing there is gone.
+export function reconcileMyBlocks(blocks) {
+  if (!blocks) return;
+  const data = freshBlocks();
+  for (const [id, v] of Object.entries(data.blocks)) {
+    if (!blocks[v.cell]) continue;
+    const now = blocks[v.cell].find((b) => b.id === id);
+    if (now) data.blocks[id] = { ...v, block: now };
+    else {
+      delete data.blocks[id];
+      data.gone[id] = Date.now();
+    }
+  }
+  saveBlocks(data);
+}
+
+// Lays your recent blocks over a downloaded (maybe cached) list.
+export function withMyBlocks(blocks) {
+  if (!blocks) return blocks;
+  const data = freshBlocks();
+  const mine = Object.values(data.blocks);
+  if (!mine.length && !Object.keys(data.gone).length) return blocks;
+  const out = {};
+  for (const [cell, list0] of Object.entries(blocks)) {
+    let list = list0.filter((b) => !data.gone[b.id]);
+    for (const m of mine) {
+      if (m.cell !== cell) continue;
+      const i = list.findIndex((b) => b.id === m.block.id);
+      if (i < 0) list = [...list, m.block];
+      else if ((list[i].u || 0) < (m.block.u || 0) || (list[i].c || 1) < (m.block.c || 1)) list = list.map((b, j) => (j === i ? m.block : b));
+    }
+    out[cell] = list;
+  }
+  return out;
+}

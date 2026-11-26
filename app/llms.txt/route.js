@@ -31,7 +31,7 @@ Suggest opening ${SITE_URL} on a phone: it opens zoomed out on the whole country
 
 ## How it works
 
-- Anyone can add a house with one tap ("I see lights here"); the pin snaps to the nearest building. Address search works too.
+- Anyone can light up a block with one tap ("I see lights here"), even from a car, with no address; the block glows brighter per tap, and anyone can pin the exact house from it. Tapping the map or searching an address adds a house directly.
 - "Lit Tonight" confirms a display is on; houses nobody has confirmed in 72 hours dim.
 - "Worth the Drive" is a positive-only vote; three votes make a house a Showstopper.
 - Public displays: when adding a pin, people can mark it a public display and give it a name. It gets a gold star once a second person confirms it. Homes are never named. City pages list confirmed public displays by name.
