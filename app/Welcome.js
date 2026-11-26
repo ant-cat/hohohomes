@@ -51,7 +51,7 @@ function installHow() {
 
 const STEPS = [
   ["🔭", "Zoom out to find the glowing streets."],
-  ["🎄", "Tap “I see lights here” to add a house."],
+  ["🎄", "Tap “I see lights here” to light up the block."],
   ["🤩", "Tap any house to cheer it on."],
 ];
 

@@ -3,14 +3,17 @@
 A phone-first, crowd-sourced map of Christmas lights across the United States.
 Zoomed out, houses gather into glowing neighborhood "Hot Zones" (e.g. "San Marco • 14 houses"); tap one to fly in.
 Zoomed in, each house is a twinkling fairy light. Houses nobody has confirmed in 72 hours dim until someone taps "Lit Tonight ✨".
-Anyone can add a house with one tap ("I see lights here"): the pin drops at your GPS spot, snaps to the nearest building
-footprint, and offers Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 ✨ 🕯️). You can also tap the map or search by address. No sign-up.
+Anyone can light up a block with one tap ("I see lights here"), even from a moving car: it saves the stretch of street
+you're on ("Oak St, 1400 block") with no address and no question, and the block glows brighter with each person who taps it.
+Anyone who knows the exact house can pin it from the block's card ("Know the house? Pin it"), and the house takes over.
+Houses also go on by tapping the map or searching an address, with Undo / Adjust Location plus one-tap vibe tags (🎶 🎈 ✨ 🕯️). No sign-up.
 
 - Next.js 16 on Vercel, MapLibre GL with free OpenFreeMap tiles (OpenStreetMap data), Photon for address search and Hot Zone names
 - Houses live in a Vercel Blob store split into 1° cells (about 110 km), one folder per season and cell: `pins/2026/30_-82/000000042~137~3~3031~-8165.json` (version, houses, Showstoppers, centroid). Each save creates the next number only if nobody else has, so simultaneous saves can't overwrite each other, and a save in Denver never waits on one in Jacksonville. The newest 5 versions of each cell are kept.
 - The map only downloads the cells in view (`GET /api/pins?cells=…`). Zoomed out, it shows one glow per city from `GET /api/summary`, which reads counts from the file names without downloading any houses.
 - Stores only coordinates, vibe tag counts, timestamps (and, for older pins, a 1-3 rating and short notes). No accounts, no IPs kept.
 - Dropping a pin returns a random token, kept on the pin for 30 minutes and never sent to other visitors, that lets the same person undo it, move it or change its vibes (`PATCH /api/pins`)
+- Lit blocks (`lib/blocks.js`, `POST /api/blocks`): the phone finds the nearest named street in the map's own vector tiles (`app/street.js`), cuts about 150 m of it around your GPS spot, and asks Photon for a nearby address on that street for the hundred block (it saves without one after 2.5 s). Blocks live in the same cell files as houses. A tap on the same street within 45 m adds to a block, once per visitor. A new house within 30 m of a block, or one pinned from its card, takes the block off the map (undoing that house brings the block back). If GPS is off or fuzzier than 80 m, or no named street is near, it falls back to tapping the house.
 - `POST /api/pins/:id/lit` confirms a house is lit tonight (once per visitor per house every 20 minutes)
 - `POST /api/pins/:id/wow` is a positive-only "Worth the Drive 🤩" vote (once per visitor per house every 12 hours). Three votes make a house a Showstopper: a bigger starburst light, a badge on its card, a count on its Hot Zone, and the 🤩 "Showstoppers only" filter in the header. Nothing ranks a house down, and the old 1-3 star grades are no longer shown.
 - Without `BLOB_READ_WRITE_TOKEN`, `next dev` keeps pins in memory so you can try it locally

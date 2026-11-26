@@ -53,7 +53,9 @@ export async function POST(req) {
   let rating = Number(body.rating) || 0;
   rating = Math.max(0, Math.min(3, Math.round(rating)));
   try {
-    return json(await addPin({ ...spot, rating, note: cleanNote(body.note), vibes: body.vibes }));
+    // fromBlock: pinned from a lit block's card, so this house takes over from that block.
+    const fromBlock = typeof body.fromBlock === "string" && /^b[a-z0-9]{4,24}$/.test(body.fromBlock) ? body.fromBlock : undefined;
+    return json(await addPin({ ...spot, rating, note: cleanNote(body.note), vibes: body.vibes, fromBlock }));
   } catch (err) {
     return failure(err);
   }

@@ -13,6 +13,10 @@ import Welcome, { shouldWelcome, rememberWelcomed } from "./Welcome";
 import { track } from "../lib/analytics";
 import { rememberMine, dropMine, myCells, reconcileMine, withMine } from "./mine";
 import { locate, locateTrouble } from "./locate";
+import { blockGlow, blockTitle, midpoint, sameStreet, metersToLine, MERGE_METERS } from "../lib/blocks";
+import { findStreet, nearbyAddresses, hundredFrom } from "./street";
+import { blockNode } from "./blockCard";
+import { rememberMyBlock, dropMyBlock, myBlockCells, reconcileMyBlocks, withMyBlocks } from "./mine";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
 // Below LOAD_ZOOM the map shows one glow per area (nearby 1° cells from the national summary,
@@ -38,6 +42,12 @@ const FILTERS = {
 const MAX_ZONE_LABELS = 24;
 const HUES = ["warm", "warm", "warm", "red", "gold", "green", "blue", "warm", "pink", "gold"];
 const SPARK_COLORS = ["#fff1c9", "#ff5a5f", "#ffc94d", "#5fe39a", "#7cc4ff", "#ff8fc7"];
+// Lit blocks (a stretch of street lit from a car, see lib/blocks.js) glow from this zoom in, as a
+// band along the street with a string of bulbs that chase along it.
+const BLOCK_MIN_ZOOM = 10;
+const BULB_SPACING_M = 11;
+// GPS worse than this can't tell one street from the next, so you tap the house instead.
+const BLOCK_MAX_ACCURACY_M = 80;
 // Reports this close to a house count toward it (the server's rule too, in lib/pins.js).
 const DEDUPE_METERS = 20;
 // A house shown the moment you tap, before the server has saved it.
@@ -123,6 +133,41 @@ function toGeoJSON(pins, filter = "all") {
       properties: { id: p.id, b: Math.round(glowFor(p) * 100) / 100, s: isShowstopper(p) ? 1 : 0, h: hash(p.id) % SPARK_COLORS.length },
     })),
   };
+}
+
+// Lit blocks as lines (the glowing band) and as bulbs every few meters along them.
+function blocksGeoJSON(blocks, filter = "all") {
+  const lines = [];
+  const bulbs = [];
+  if (filter === "all") {
+    for (const bk of blocks) {
+      if (!bk.g || bk.g.length < 2) continue;
+      const b = Math.round(blockGlow(bk) * 100) / 100;
+      lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: bk.g }, properties: { id: bk.id, b } });
+      // Bulbs: walk the stretch in flat meters.
+      const lat0 = bk.g[0][1];
+      const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
+      let carry = BULB_SPACING_M / 2;
+      let k = hash(bk.id) % 5;
+      for (let i = 1; i < bk.g.length; i++) {
+        const [ax, ay] = bk.g[i - 1];
+        const [bx, by] = bk.g[i];
+        const len = Math.hypot((bx - ax) * kx, (by - ay) * 111320);
+        for (let d = carry; d < len; d += BULB_SPACING_M) {
+          const t = d / len;
+          bulbs.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [ax + t * (bx - ax), ay + t * (by - ay)] },
+            properties: { id: bk.id, b, ph: k % 3, h: k % SPARK_COLORS.length },
+          });
+          k++;
+        }
+        carry = (carry - len) % BULB_SPACING_M;
+        if (carry < 0) carry += BULB_SPACING_M;
+      }
+    }
+  }
+  return { lines: { type: "FeatureCollection", features: lines }, bulbs: { type: "FeatureCollection", features: bulbs } };
 }
 
 function makeOrb(p) {
@@ -221,6 +266,12 @@ export default function LightsMap() {
   const pendingRef = useRef(new Map()); // id -> pin: houses you just tapped, still saving
   const summaryRef = useRef(null); // cell -> { n, s, lat, lng }: houses per cell, nationwide
   const dropAtRef = useRef(() => {});
+  const blockChaseRef = useRef(null);
+  const blocksRef = useRef(new Map()); // cell -> lit blocks downloaded so far
+  const pendingBlocksRef = useRef(new Map()); // id -> a block you just tapped, still saving
+  const blockSessionRef = useRef(null); // your last block tap: token, for Undo
+  const fromBlockRef = useRef(null); // picking a house from a lit block's card
+  const openBlockRef = useRef(() => {});
 
   const [count, setCount] = useState(null);
   const [shows, setShows] = useState(0); // how many Showstoppers
@@ -230,6 +281,8 @@ export default function LightsMap() {
   const [mode, setMode] = useState("idle"); // idle | locating | picking | adjusting
   const [toast, setToast] = useState("");
   const [locHelp, setLocHelp] = useState(null); // { title, fix, action, again } when finding you didn't work
+  const [blockDrop, setBlockDrop] = useState(null); // { status, title, merged, counted } after lighting a block
+  const [finding, setFinding] = useState(""); // "" | "you" | "street": what "I see lights here" is waiting on
 
   // Keep the bottom dock above the on-screen keyboard while typing an address.
   useEffect(() => {
@@ -390,6 +443,13 @@ export default function LightsMap() {
       const map = mapRef.current;
       const src = map && map.getSource("pins");
       if (src) src.setData(toGeoJSON(pins, filter));
+      const bsrc = map && map.getSource("blocks");
+      const bulbSrc = map && map.getSource("block-bulbs");
+      if (bsrc && bulbSrc) {
+        const g = blocksGeoJSON(flatBlocks(), filter);
+        bsrc.setData(g.lines);
+        bulbSrc.setData(g.bulbs);
+      }
       const sum = map && map.getSource("summary");
       if (sum) {
         const n = (v) => (filter === "show" ? v.s : filter === "disp" ? v.d || 0 : v.n);
@@ -423,20 +483,32 @@ export default function LightsMap() {
 
   // Everything on the map: the downloaded cells, plus houses you just tapped that are still saving.
   const flatPins = () => [...[...cellsRef.current.values()].flatMap((c) => c.pins), ...pendingRef.current.values()];
+  const flatBlocks = () => [...[...blocksRef.current.values()].flat(), ...pendingBlocksRef.current.values()];
 
   // Takes cells from the server and redraws. A save's reply (saved) is the truth for its cells.
   // A download may come from a short-lived cache, so your own recent houses are laid over it.
+  // blocks: the lit blocks of the same cells, when the server sent them.
   const applyCells = useCallback(
-    (cells, { saved = true } = {}) => {
+    (cells, { saved = true, blocks } = {}) => {
       if (!cells) return;
       if (saved) reconcileMine(cells);
       else cells = withMine(cells);
+      if (blocks) {
+        if (saved) reconcileMyBlocks(blocks);
+        else blocks = withMyBlocks(blocks);
+        for (const [cell, list] of Object.entries(blocks)) blocksRef.current.set(cell, list);
+      }
       const now = Date.now();
       const summary = (summaryRef.current ||= {});
       for (const [cell, pins] of Object.entries(cells)) {
         cellsRef.current.set(cell, { pins, at: now });
-        if (pins.length) summary[cell] = summarize(pins);
-        else delete summary[cell];
+        // A cell with only lit blocks stays in the summary, so it keeps being downloaded.
+        const nb = (blocksRef.current.get(cell) || []).length;
+        if (pins.length) summary[cell] = { ...summarize(pins), b: nb };
+        else if (nb) {
+          const m = midpoint(blocksRef.current.get(cell)[0].g);
+          summary[cell] = { n: 0, s: 0, d: 0, b: nb, lat: m.lat, lng: m.lng };
+        } else delete summary[cell];
       }
       setPins(flatPins());
     },
@@ -542,7 +614,7 @@ export default function LightsMap() {
     loadingRef.current = true;
     try {
       const data = await (await fetch(`/api/pins?cells=${need.join(",")}`)).json();
-      applyCells(data.cells, { saved: false });
+      applyCells(data.cells, { saved: false, blocks: data.blocks });
     } catch {
     } finally {
       loadingRef.current = false;
@@ -569,6 +641,12 @@ export default function LightsMap() {
       for (const [cell, pins] of Object.entries(myCells())) {
         if (!fresh[cell]) fresh[cell] = summarize(pins);
       }
+      for (const [cell, list] of Object.entries(myBlockCells())) {
+        if (!fresh[cell]) {
+          const m = midpoint(list[0].g);
+          fresh[cell] = { n: 0, s: 0, d: 0, b: list.length, lat: m.lat, lng: m.lng };
+        }
+      }
       summaryRef.current = fresh;
       setPins(flatPins());
       loadCells();
@@ -588,7 +666,7 @@ export default function LightsMap() {
         const data = await api("POST", `/api/pins/${id}/lit?cell=${cell}`);
         lastWriteRef.current = Date.now();
         rememberConfirmed(id);
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         scoutLit(id);
         track("lit_tonight");
       } catch (err) {
@@ -610,7 +688,7 @@ export default function LightsMap() {
         const data = await api("POST", `/api/pins/${id}/wow?cell=${cell}`);
         lastWriteRef.current = Date.now();
         rememberVoted(id);
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         scoutWow(id);
         track("worth_the_drive");
       } catch (err) {
@@ -629,7 +707,7 @@ export default function LightsMap() {
       try {
         const data = await api("POST", `/api/pins/${id}/display?cell=${pinCell(id)}`);
         lastWriteRef.current = Date.now();
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         if (popupRef.current) popupRef.current.remove();
         if (data.display === "confirmed") {
           say(`⭐ Confirmed! ${data.pin.d.n} is on the map now`, 4500);
@@ -658,7 +736,7 @@ export default function LightsMap() {
         if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Could not remove that, try again.");
         lastWriteRef.current = Date.now();
         if (popupRef.current) popupRef.current.remove();
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         say("House removed");
       } catch (err) {
         say(err.message);
@@ -1017,6 +1095,77 @@ export default function LightsMap() {
           if (f) flyToRegionRef.current(f);
         });
 
+        // Lit blocks: a warm band along the street, brighter with every tap, with a string of
+        // colored bulbs chasing along it. Under the houses and their zones.
+        const blockData = blocksGeoJSON(flatBlocks(), filterRef.current);
+        map.addSource("blocks", { type: "geojson", data: blockData.lines });
+        map.addSource("block-bulbs", { type: "geojson", data: blockData.bulbs });
+        const bandGrow = ["+", 1, ["*", 0.7, ["get", "b"]]];
+        map.addLayer({
+          id: "block-halo",
+          type: "line",
+          source: "blocks",
+          minzoom: BLOCK_MIN_ZOOM,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#ffb23f",
+            "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 10, ["*", 7, bandGrow], 14, ["*", 20, bandGrow], 18, ["*", 64, bandGrow]],
+            "line-blur": ["interpolate", ["exponential", 1.6], ["zoom"], 10, 5, 14, 14, 18, 40],
+            "line-opacity": ["+", 0.4, ["*", 0.35, ["get", "b"]]],
+          },
+        });
+        map.addLayer({
+          id: "block-core",
+          type: "line",
+          source: "blocks",
+          minzoom: BLOCK_MIN_ZOOM,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#ffe7a8",
+            "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 10, 1.5, 14, 4, 18, 10],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 10, 1, 18, 4],
+            "line-opacity": ["+", 0.55, ["*", 0.4, ["get", "b"]]],
+          },
+        });
+        const bulbColor = ["match", ["get", "h"], ...SPARK_COLORS.slice(1).flatMap((c, i) => [i + 1, c]), SPARK_COLORS[0]];
+        map.addLayer({
+          id: "block-bulbs",
+          type: "circle",
+          source: "block-bulbs",
+          minzoom: 14,
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 1.6, 16, 2.6, 18, 4.5],
+            "circle-color": bulbColor,
+            "circle-blur": 0.35,
+            "circle-opacity": 0.95,
+          },
+        });
+        const openBlockAt = (e) => {
+          if (modeRef.current !== "idle") return;
+          // A neighborhood glow on top takes the tap (it zooms in); the block opens once you're close.
+          const over = ["zone-halo", "spark-glow", "region-halo"].filter((l) => map.getLayer(l));
+          if (over.length && map.queryRenderedFeatures(e.point, { layers: over }).length) return;
+          const f = e.features && e.features[0];
+          if (f) openBlockRef.current(f.properties.id, e.lngLat);
+        };
+        // The halo is wider than the bulbs on it, so it alone takes the tap (one card per tap).
+        map.on("click", "block-halo", openBlockAt);
+        map.on("mouseenter", "block-halo", () => (map.getCanvas().style.cursor = "pointer"));
+        map.on("mouseleave", "block-halo", () => (map.getCanvas().style.cursor = ""));
+        // The bulbs chase along the street, a beat at a time, like a marquee. Still for Reduce Motion.
+        const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!still) {
+          let beat = 0;
+          blockChaseRef.current = setInterval(() => {
+            if (document.hidden || map.getZoom() < 14 || !flatBlocks().length) return;
+            beat = (beat + 1) % 3;
+            try {
+              map.setPaintProperty("block-bulbs", "circle-opacity", ["match", ["%", ["+", ["get", "ph"], beat], 3], 0, 1, 1, 0.55, 0.2]);
+              map.setPaintProperty("block-halo", "line-opacity", ["+", beat === 0 ? 0.46 : 0.4, ["*", 0.35, ["get", "b"]]]);
+            } catch {}
+          }, 420);
+        }
+
         map.addSource("pins", {
           type: "geojson",
           data: toGeoJSON(pinsRef.current, filterRef.current),
@@ -1133,6 +1282,7 @@ export default function LightsMap() {
     })();
     return () => {
       cancelled = true;
+      clearInterval(blockChaseRef.current);
       orbsRef.current.clear();
       zonesRef.current.clear();
       if (map) map.remove();
@@ -1165,7 +1315,7 @@ export default function LightsMap() {
         const data = await api("PATCH", "/api/pins", { token: s.token, action: "vibes", vibes: s.vibes });
         lastWriteRef.current = Date.now();
         scoutTagged(s.pinId, s.vibes.includes(WOW));
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
       } catch (err) {
         s.sent = null;
         say(err.message);
@@ -1198,7 +1348,7 @@ export default function LightsMap() {
         s.pinId = data.pin.id;
         s.token = data.token || s.token; // moving into another cell issues a new token
         s.lngLat = { lng: data.pin.lng, lat: data.pin.lat };
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         rememberMine(data.pin);
         if (sessionRef.current === s) {
           setDrop((d) => d && { ...d, merged: data.merged, snapped: Boolean(auto), adjusted: !auto, rough: false });
@@ -1280,7 +1430,10 @@ export default function LightsMap() {
         map.flyTo({ center: spot, zoom: Math.max(map.getZoom(), 17.5), speed: 1.6, offset: [0, -90], essential: true });
       }
 
-      s.promise = api("POST", "/api/pins", { lat: spot.lat, lng: spot.lng })
+      // Pinned from a lit block's card: this house takes over from that block.
+      const fromBlock = fromBlockRef.current;
+      fromBlockRef.current = null;
+      s.promise = api("POST", "/api/pins", { lat: spot.lat, lng: spot.lng, fromBlock: fromBlock || undefined })
         .then((data) => {
           lastWriteRef.current = Date.now();
           s.token = data.token;
@@ -1295,11 +1448,11 @@ export default function LightsMap() {
             s.saved = data; // taken back while saving: the undo tidies up
             return true;
           }
-          applyCells(data.cells);
+          applyCells(data.cells, { blocks: data.blocks });
           // Keep it on this device for a few minutes, in case a refresh brings back an older list.
           rememberMine(data.pin);
           scoutAdded(s.pinId);
-          track("add_house", { merged: data.merged ? "yes" : "no" });
+          track("add_house", { merged: data.merged ? "yes" : "no", from: fromBlock ? "block" : "map" });
           if (sessionRef.current === s) setDrop((d) => d && { ...d, status: "saved", merged: data.merged });
           pushVibes(s);
           return true;
@@ -1351,14 +1504,14 @@ export default function LightsMap() {
       const data = await api("PATCH", "/api/pins", { token: s.token, action: "undo" });
       lastWriteRef.current = Date.now();
       scoutUndone(s.pinId);
-      applyCells(data.cells);
+      applyCells(data.cells, { blocks: data.blocks });
       dropMine(s.pinId); // if it was someone else's house too, it stays, just not as yours
       say("Pin removed");
     } catch (err) {
       if (restore) restore();
       else if (s.saved) {
         // It saved, but the undo didn't: show the house after all.
-        applyCells(s.saved.cells);
+        applyCells(s.saved.cells, { blocks: s.saved.blocks });
         rememberMine(s.saved.pin);
       }
       say(err.message);
@@ -1404,7 +1557,7 @@ export default function LightsMap() {
         s.sentWhen = whenKey;
         if (data.display === "pending") rememberMyDisplay(s.pinId, name);
         else forgetMyDisplay(s.pinId);
-        applyCells(data.cells);
+        applyCells(data.cells, { blocks: data.blocks });
         if (data.pin) rememberMine(data.pin);
         if (data.display === "confirmed") {
           haptic([20, 40, 20]);
@@ -1509,7 +1662,10 @@ export default function LightsMap() {
 
   // --- Other controls -------------------------------------------------------
 
-  const cancelPicking = useCallback(() => setMode("idle"), []);
+  const cancelPicking = useCallback(() => {
+    fromBlockRef.current = null;
+    setMode("idle");
+  }, []);
 
   const startPicking = useCallback(
     (msg) => {
@@ -1524,25 +1680,226 @@ export default function LightsMap() {
     [say]
   );
 
+  // --- Lighting up a block --------------------------------------------------
+  //
+  // "I see lights here" from a moving car: one tap saves the stretch of street you're on, with no
+  // address and no question. The map's own street lines say which street; a nearby address gives
+  // the hundred block when it can. If GPS is off or fuzzy, or no street is near, it falls back to
+  // the house flow (tap the house, or a pin at your spot).
+
+  const endBlockSession = useCallback(() => {
+    blockSessionRef.current = null;
+    setBlockDrop(null);
+  }, []);
+
+  const lightBlock = useCallback(
+    async (gps, accuracy) => {
+      const map = mapRef.current;
+      if (!map) return dropAt(gps, { snap: true, rough: accuracy > 60 });
+      if (sessionRef.current) endSession();
+      if (popupRef.current) popupRef.current.remove();
+      setFinding("street");
+      // Start on the nearest address now; the street comes from the tiles once the camera is there.
+      const addresses = nearbyAddresses(gps);
+      map.flyTo({ center: [gps.lng, gps.lat], zoom: Math.max(map.getZoom(), 16.5), speed: 2.2, essential: true });
+      const settled = () =>
+        new Promise((resolve) => {
+          const done = setTimeout(resolve, 6000);
+          map.once("moveend", () => {
+            const t = setTimeout(() => {
+              clearTimeout(done);
+              resolve();
+            }, 2500);
+            map.once("idle", () => {
+              clearTimeout(t);
+              clearTimeout(done);
+              resolve();
+            });
+          });
+        });
+      await settled();
+      let found = findStreet(map, gps, 40 + Math.min(accuracy || 0, 35));
+      if (!found) {
+        // Tiles can land a moment after the camera stops.
+        await new Promise((r) => setTimeout(r, 700));
+        found = findStreet(map, gps, 40 + Math.min(accuracy || 0, 35));
+      }
+      setFinding("");
+      if (!found) {
+        // No named street near you: drop a house at your spot, as before.
+        track("light_block_fallback", { why: "no_street" });
+        return dropAt(gps, { snap: true, rough: accuracy > 60 });
+      }
+
+      endBlockSession();
+      const s = { token: null, temp: null, bumped: null };
+      blockSessionRef.current = s;
+      const mid = midpoint(found.line);
+      const now = Date.now();
+      // Show it right away. A tap on a block that's already lit adds to it (the server decides).
+      const near = flatBlocks().find(
+        (b) => sameStreet(b.s, found.street) && Math.min(metersToLine(gps, b.g), metersToLine(mid, b.g)) <= MERGE_METERS
+      );
+      if (near && !String(near.id).startsWith(PENDING)) {
+        s.bumped = { id: near.id, before: near };
+        for (const [cell, list] of blocksRef.current) {
+          if (list.some((b) => b.id === near.id)) {
+            blocksRef.current.set(cell, list.map((b) => (b.id === near.id ? { ...b, c: (b.c || 1) + 1, u: now } : b)));
+          }
+        }
+      } else {
+        const id = `${PENDING}b${now.toString(36)}`;
+        s.temp = id;
+        pendingBlocksRef.current.set(id, { id, s: found.street, g: found.line, c: 1, t: now, u: now });
+      }
+      setPins(flatPins());
+      setBlockDrop({ status: "saving", title: blockTitle(near || { s: found.street }), merged: Boolean(near), counted: true });
+      haptic([20, 30, 20]);
+      if (!mutedRef.current) chime(true);
+      lightUp(libRef.current, map, mid);
+
+      const hundred = hundredFrom(await addresses, found.street);
+      try {
+        const data = await api("POST", "/api/blocks", { lat: gps.lat, lng: gps.lng, street: found.street, hundred, line: found.line });
+        lastWriteRef.current = Date.now();
+        if (s.temp) pendingBlocksRef.current.delete(s.temp);
+        s.token = data.token;
+        s.id = data.block.id;
+        s.cell = Object.keys(data.blocks || {})[0];
+        applyCells(data.cells, { blocks: data.blocks });
+        if (s.cell) rememberMyBlock(s.cell, data.block);
+        track("light_block", { merged: data.merged ? "yes" : "no", hundred: data.block.r !== undefined ? "yes" : "no" });
+        if (blockSessionRef.current === s) {
+          setBlockDrop({ status: "saved", title: blockTitle(data.block), merged: data.merged, counted: data.counted });
+        }
+      } catch (err) {
+        if (s.temp) pendingBlocksRef.current.delete(s.temp);
+        if (s.bumped) {
+          for (const [cell, list] of blocksRef.current) {
+            if (list.some((b) => b.id === s.bumped.id)) blocksRef.current.set(cell, list.map((b) => (b.id === s.bumped.id ? s.bumped.before : b)));
+          }
+        }
+        setPins(flatPins());
+        if (blockSessionRef.current === s) endBlockSession();
+        say(err.message, 4500);
+      }
+    },
+    [dropAt, endSession, endBlockSession, applyCells, setPins, say]
+  );
+
+  const undoBlock = useCallback(async () => {
+    const s = blockSessionRef.current;
+    endBlockSession();
+    if (!s || !s.token) return;
+    haptic(15);
+    try {
+      const data = await api("PATCH", "/api/blocks", { token: s.token, action: "undo" });
+      lastWriteRef.current = Date.now();
+      if (!data.block) dropMyBlock(s.id);
+      applyCells(data.cells, { blocks: data.blocks });
+      say("Block taken back");
+    } catch (err) {
+      say(err.message);
+    }
+  }, [endBlockSession, applyCells, say]);
+
+  // The "Block lit" toast tidies itself away; you're driving.
+  useEffect(() => {
+    if (!blockDrop || blockDrop.status !== "saved") return;
+    const t = setTimeout(endBlockSession, 7000);
+    return () => clearTimeout(t);
+  }, [blockDrop, endBlockSession]);
+
   const iSeeLights = useCallback(() => {
     primeAudio();
     setLocHelp(null);
     if (!navigator.geolocation) return startPicking("Tap the map where the lights are.");
     setMode("locating");
+    setFinding("you");
     locate(
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
+      // A car moves fast, so only a fresh fix will do.
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 },
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        setMode("idle");
+        setFinding("");
         if (!inUSA(lat, lng)) return startPicking("HoHoHomes covers the US for now. Tap the map where the lights are.");
-        dropAt({ lng, lat }, { snap: true, rough: accuracy > 60 });
+        if (accuracy > BLOCK_MAX_ACCURACY_M) {
+          // Too fuzzy to tell one street from the next: tap the house instead.
+          track("light_block_fallback", { why: "fuzzy_gps" });
+          const map = mapRef.current;
+          if (map) map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 16.5), speed: 2, essential: true });
+          return startPicking("GPS is fuzzy here. Tap the lit house on the map.");
+        }
+        lightBlock({ lng, lat }, accuracy);
       },
       (err) => {
         // You can still add the house by tapping it on the map.
+        setFinding("");
         startPicking();
         explainLocate(err, "add");
       }
     );
-  }, [dropAt, startPicking, explainLocate]);
+  }, [lightBlock, startPicking, explainLocate]);
+
+  // A lit block's card.
+  const removeBlock = useCallback(
+    async (block) => {
+      const cell = [...blocksRef.current].find(([, list]) => list.some((b) => b.id === block.id));
+      try {
+        const res = await fetch(`/api/blocks/${block.id}?cell=${cell ? cell[0] : ""}`, {
+          method: "DELETE",
+          headers: { "x-admin-key": adminKeyRef.current },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Could not remove that, try again.");
+        lastWriteRef.current = Date.now();
+        if (popupRef.current) popupRef.current.remove();
+        applyCells(data.cells, { blocks: data.blocks });
+        say("Block removed");
+      } catch (err) {
+        say(err.message);
+        throw err;
+      }
+    },
+    [applyCells, say]
+  );
+
+  const pinFromBlock = useCallback(
+    (block) => {
+      const map = mapRef.current;
+      if (popupRef.current) popupRef.current.remove();
+      if (!map) return;
+      fromBlockRef.current = block.id;
+      const mid = midpoint(block.g);
+      map.flyTo({ center: [mid.lng, mid.lat], zoom: Math.max(map.getZoom(), 18), speed: 1.4, essential: true });
+      track("block_pin_house");
+      startPicking("Tap the lit house on the map. It takes over from the block.");
+    },
+    [startPicking]
+  );
+
+  const openBlock = useCallback(
+    (id, at) => {
+      const map = mapRef.current;
+      const lib = libRef.current;
+      const block = flatBlocks().find((b) => b.id === id);
+      if (!map || !lib || !block || String(id).startsWith(PENDING)) return;
+      if (popupRef.current) popupRef.current.remove();
+      const where = at || midpoint(block.g);
+      popupRef.current = new lib.Popup({ offset: 14, maxWidth: "280px" })
+        .setLngLat([where.lng, where.lat])
+        .setDOMContent(blockNode(block, { onPin: pinFromBlock, onRemove: adminKeyRef.current ? removeBlock : null }))
+        .addTo(map);
+      const y = map.project([where.lng, where.lat]).y;
+      const card = popupRef.current.getElement().getBoundingClientRect().height;
+      const top = document.querySelector(".top");
+      const minY = (top ? top.getBoundingClientRect().bottom : 0) + card + 24;
+      if (y < minY) map.panBy([0, y - minY], { duration: 350 });
+    },
+    [pinFromBlock, removeBlock]
+  );
+  openBlockRef.current = openBlock;
 
   const nearMe = useCallback(() => {
     setHint(false);
@@ -1854,6 +2211,33 @@ export default function LightsMap() {
           </div>
         )}
 
+        {blockDrop && !drop && mode === "idle" && (
+          <div className={`drop-toast block-toast glass${blockDrop.status === "saved" ? " saved" : ""}`} role="status">
+            <span className="drop-msg block-msg">
+              <b>
+                {!blockDrop.counted
+                  ? "You already lit this block ✨"
+                  : blockDrop.merged
+                    ? "Added your vote 🎄"
+                    : "Block lit ✨"}
+              </b>
+              <span className="block-where">
+                {blockDrop.title}
+                {" · "}
+                {blockDrop.status === "saved" ? "Saved. Keep driving" : "Saving…"}
+              </span>
+            </span>
+            {blockDrop.counted && (
+              <button className="tbtn" onClick={undoBlock} disabled={blockDrop.status !== "saved"}>
+                Undo
+              </button>
+            )}
+            <button className="tx" onClick={endBlockSession} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
+
         {drop && mode !== "adjusting" && (
           <div className="drop-toast glass" role="status">
             <span className="drop-msg">{dropMsg}</span>
@@ -2054,8 +2438,10 @@ export default function LightsMap() {
                   <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
                 </svg>
               </button>
-              <button type="button" className="primary" onClick={iSeeLights} disabled={mode === "locating"}>
-                {mode === "locating" ? (
+              <button type="button" className="primary" onClick={iSeeLights} disabled={Boolean(finding) || mode === "locating"}>
+                {finding === "street" ? (
+                  "Finding the street…"
+                ) : finding || mode === "locating" ? (
                   "Finding you…"
                 ) : (
                   <>

@@ -24,7 +24,7 @@ const FAQ = [
   ],
   [
     "How do I add a house with Christmas lights?",
-    "Tap \"I see lights here\" while you're standing near it. The pin drops at your spot and snaps to the nearest house, and you can undo or adjust it for 30 minutes. You can also search an address or tap the map.",
+    "Tap \"I see lights here\", even while you're driving by. It lights up the block you're on, with no address needed, and you can undo it for 30 minutes. If you know the exact house, tap the glowing block and then \"Know the house? Pin it\". You can also search an address or tap the map.",
   ],
   [
     "How do I know the lights are on tonight?",
@@ -90,7 +90,8 @@ export default function About() {
 
       <h2>Add the lights you spot</h2>
       <ul>
-        <li>Tap &quot;I see lights here&quot;. One tap, no sign-up.</li>
+        <li>Tap &quot;I see lights here&quot; to light up the block you're on. One tap, no address, no sign-up.</li>
+        <li>Know the exact house? Tap the glowing block and pin it.</li>
         <li>Tag the vibe: 🎶 Music Sync, 🎈 Inflatable Jungle, ✨ Clark Griswold, 🕯️ Classic &amp; Cozy.</li>
         <li>Passing a house that's already on the map? Tap &quot;Lit Tonight&quot; or &quot;Worth the Drive&quot;.</li>
       </ul>
